@@ -1,7 +1,9 @@
+// src/models/mod.rs
+
 pub mod user;
-pub mod project_manager;
-pub mod worker;
-pub mod pm_worker_mapping;
+pub mod session;
+pub mod group;
+pub mod group_user_mapping;
 pub mod tag;
 pub mod project;
 pub mod tag_project_mapping;

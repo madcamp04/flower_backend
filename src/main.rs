@@ -3,8 +3,8 @@ use sqlx::mysql::MySqlPoolOptions;
 use std::env;
 use dotenv::dotenv;
 
-mod routes;
 mod models;
+mod routes;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -16,12 +16,15 @@ async fn main() -> std::io::Result<()> {
         .await
         .expect("Failed to create pool");
 
+    let server_address = "127.0.0.1:8080";
+    println!("Server running at http://{}", server_address);
+
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(pool.clone()))
-            .configure(routes::init)
+            .configure(routes::login::login_routes::configure)
     })
-    .bind(("127.0.0.1", 8080))?
+    .bind(server_address)?
     .run()
     .await
 }
