@@ -1,6 +1,7 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
 
-#[derive(sqlx::FromRow, Serialize)]
+#[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct TagProjectMapping {
     pub tag_id: i32,
     pub project_id: i32,

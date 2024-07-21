@@ -1,13 +1,14 @@
-use serde::Serialize;
-use chrono::NaiveDateTime;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
 
-#[derive(sqlx::FromRow, Serialize)]
+#[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct Task {
     pub task_id: i32,
-    pub project_id: Option<i32>,
-    pub worker_id: Option<i32>,
+    pub project_id: i32,
+    pub worker_user_id: i32,
     pub title: String,
-    pub description: Option<String>,
-    pub start_time: NaiveDateTime,
-    pub end_time: NaiveDateTime,
+    pub description: String,
+    pub start_time: Option<DateTime<Utc>>,
+    pub end_time: Option<DateTime<Utc>>,
 }
