@@ -11,7 +11,6 @@ pub struct CheckUsernameResponse {
     pub is_unique: bool,
 }
 
-
 // Email check request and response
 #[derive(Deserialize)]
 pub struct CheckEmailRequest {

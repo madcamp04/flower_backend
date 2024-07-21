@@ -1,4 +1,4 @@
-use actix_web::{web, App, HttpServer};
+use actix_web::{web, App, HttpResponse, HttpServer};
 use sqlx::mysql::MySqlPoolOptions;
 use std::env;
 use dotenv::dotenv;
@@ -22,7 +22,8 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(pool.clone()))
-            .configure(routes::login::login_routes::configure)
+            .route("/", web::get().to(|| async { HttpResponse::Ok().body("Hello, world!") }))
+            .configure(routes::routes::login_configure) // Add this line
     })
     .bind(server_address)?
     .run()

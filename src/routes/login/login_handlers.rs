@@ -13,6 +13,10 @@ use super::login_models::{
     AutoLoginRequest, AutoLoginResponse,
 };
 
+pub async fn login_get() -> impl Responder {
+    HttpResponse::Ok().body("Hello this is Flow'er's Login endpoint.")
+}
+
 // Check if username is unique
 pub async fn check_username(
     pool: web::Data<MySqlPool>,
