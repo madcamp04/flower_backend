@@ -11,6 +11,7 @@ use super::login_models::{
     RegisterRequest, RegisterResponse,
     LoginRequest, LoginResponse,
     AutoLoginRequest, AutoLoginResponse,
+    LogoutRequest, LogoutResponse,
 };
 
 pub async fn login_get() -> impl Responder {
@@ -324,5 +325,77 @@ pub async fn auto_login(
             success: false,
             message: "Failed to validate session".into(),
         }),
+    }
+}
+
+pub async fn logout(
+    pool: web::Data<MySqlPool>,
+    req: HttpRequest,
+    _: web::Json<LogoutRequest>,
+) -> impl Responder {
+    // 1. Receive the session ID from the cookie (if not exist, return with error: "session ID does not exist")
+    let session_id = match req.cookie("session_id") {
+        Some(cookie) => cookie.value().to_string(),
+        None => {
+            return HttpResponse::BadRequest().json(LogoutResponse {
+                success: false,
+                message: "Session ID does not exist".into(),
+            });
+        }
+    };
+    
+    // 2. Check whether the session exists and is valid
+    let session_result = sqlx::query!(
+        "SELECT expires_at FROM Sessions_ WHERE session_id = ?",
+        session_id
+    )
+    .fetch_optional(pool.get_ref())
+    .await;
+
+    match session_result {
+        Ok(Some(session)) => {
+            let current_time = OffsetDateTime::now_utc();
+
+            // 2-1. If session is expired, return failure with message: "already expired session"
+            if session.expires_at < current_time {
+                return HttpResponse::BadRequest().json(LogoutResponse {
+                    success: false,
+                    message: "Already expired session".into(),
+                });
+            }
+
+            // 2-2. If session is not expired, delete the session and return success with message: "logout successful"
+            let delete_result = sqlx::query!(
+                "DELETE FROM Sessions_ WHERE session_id = ?",
+                session_id
+            )
+            .execute(pool.get_ref())
+            .await;
+
+            match delete_result {
+                Ok(_) => HttpResponse::Ok().json(LogoutResponse {
+                    success: true,
+                    message: "Logout successful".into(),
+                }),
+                Err(e) => {
+                    error!("Failed to delete session: {}", e);
+                    HttpResponse::InternalServerError().json(LogoutResponse {
+                        success: false,
+                        message: "Failed to logout".into(),
+                    })
+                }
+            }
+        }
+        Ok(None) => HttpResponse::BadRequest().json(LogoutResponse {
+            success: false,
+            message: "Session not found".into(),
+        }),
+        Err(e) => {
+            error!("Failed to fetch session: {}", e);
+            HttpResponse::InternalServerError().json(LogoutResponse {
+                success: false,
+                message: "Failed to check session".into(),
+            })
+        }
     }
 }

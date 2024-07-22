@@ -11,6 +11,7 @@ pub struct CheckUsernameResponse {
     pub is_unique: bool,
 }
 
+
 // Email check request and response
 #[derive(Deserialize)]
 pub struct CheckEmailRequest {
@@ -60,6 +61,18 @@ pub struct AutoLoginRequest {
 
 #[derive(Serialize)]
 pub struct AutoLoginResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+
+// Logout request and response
+#[derive(Deserialize)]
+pub struct LogoutRequest {
+}
+
+#[derive(Serialize)]
+pub struct LogoutResponse {
     pub success: bool,
     pub message: String,
 }
