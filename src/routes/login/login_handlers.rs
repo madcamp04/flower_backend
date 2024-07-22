@@ -269,7 +269,7 @@ pub async fn auto_login(
         Some(cookie) => cookie.value().to_string(),
         None => {
             info!("Session ID not found in cookies for auto login");
-            return HttpResponse::Unauthorized().json(AutoLoginResponse {
+            return HttpResponse::BadRequest().json(AutoLoginResponse {
                 success: false,
                 message: "Session ID not found in cookies".into(),
                 username: "".into(),
@@ -345,7 +345,7 @@ pub async fn auto_login(
         }
         Ok(None) => {
             info!("Invalid session ID: {}", session_id);
-            HttpResponse::Unauthorized().json(AutoLoginResponse {
+            HttpResponse::BadRequest().json(AutoLoginResponse {
                 success: false,
                 message: "Invalid session ID".into(),
                 username: "".into(),
