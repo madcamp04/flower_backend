@@ -63,4 +63,17 @@ pub struct AutoLoginRequest {
 pub struct AutoLoginResponse {
     pub success: bool,
     pub message: String,
+    pub username: String,
+}
+
+
+// Logout request and response
+#[derive(Deserialize)]
+pub struct LogoutRequest {
+}
+
+#[derive(Serialize)]
+pub struct LogoutResponse {
+    pub success: bool,
+    pub message: String,
 }
