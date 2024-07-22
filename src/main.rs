@@ -28,8 +28,9 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(pool.clone()))
             .wrap(Logger::default())
             .route("/", web::get().to(|| async { HttpResponse::Ok().body("Hello, world!") }))
-            .configure(routes::routes::login_configure) // Add this line
             .configure(routes::routes::admin_configure)
+            .configure(routes::routes::login_configure) // Add this line
+            .configure(routes::routes::group_selection_configure)
     })
     .bind(server_address)?
     .run()

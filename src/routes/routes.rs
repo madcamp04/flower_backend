@@ -2,6 +2,13 @@
 
 use actix_web::web;
 
+pub fn admin_configure(cfg: &mut web::ServiceConfig) {
+    cfg.service(
+        web::scope("/admin")
+            .route("/delete/all/the/sessions/BECAREFUL", web::get().to(super::admin::admin_handlers::session_reset))
+    );
+}
+
 use super::login::login_handlers;
 
 pub fn login_configure(cfg: &mut web::ServiceConfig) {
@@ -18,18 +25,13 @@ pub fn login_configure(cfg: &mut web::ServiceConfig) {
     );
 }
 
-pub fn admin_configure(cfg: &mut web::ServiceConfig) {
+use super::group_selection::group_selection_handlers;
+
+pub fn group_selection_configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
-        web::scope("/admin")
-            .route("/delete/all/the/sessions/BECAREFUL", web::get().to(super::admin::admin_handlers::session_reset))
+        web::scope("/api-group-selection")
+            .route("", web::get().to(group_selection_handlers::group_selection_get))  // Add this line
+            .route("/", web::get().to(group_selection_handlers::group_selection_get))  // Add this line
+            .route("/group-list", web::post().to(group_selection_handlers::get_group_list))
     );
 }
-
-// pub fn group_selection_configure(cfg: &mut web::ServiceConfig) {
-//     cfg.service(
-//         web::scope("/api-group-selection")
-//             .route("", web::get().to(super::group_selection::group_selection_handlers::group_selection_get))  // Add this line
-//             .route("/", web::get().to(super::group_selection::group_selection_handlers::group_selection_get))  // Add this line
-//             .route("/group-list", web::post().to(super::group_selection::group_selection_handlers::group_list))
-//     )
-// }

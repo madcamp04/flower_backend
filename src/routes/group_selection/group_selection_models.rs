@@ -1,12 +1,20 @@
 use serde::{Deserialize, Serialize};
 
-// Username check request and response
 #[derive(Deserialize)]
 pub struct GetGroupListRequest {
-    pub username: String,
+    // if needed
 }
 
 #[derive(Serialize)]
-pub struct GetGroupListResponse {
-    pub is_unique: bool,
+pub struct Group {
+    pub group_name: String,
+    pub writeable: bool,
+    pub owner_username: String,
 }
+
+// list of groups
+#[derive(Serialize)]
+pub struct GetGroupListResponse {
+    pub groups: Vec<Group>,
+}
+
