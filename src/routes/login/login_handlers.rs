@@ -1,6 +1,6 @@
 use actix_web::{web, HttpResponse, HttpRequest, Responder};
 use sqlx::MySqlPool;
-use log::error;
+use log::{error, info};
 use uuid::Uuid;
 use chrono::{Utc, Duration};
 use time::OffsetDateTime;
@@ -15,6 +15,7 @@ use super::login_models::{
 };
 
 pub async fn login_get() -> impl Responder {
+    info!("Received request on /login_get endpoint");
     HttpResponse::Ok().body("Hello this is Flow'er's Login endpoint.")
 }
 
@@ -24,6 +25,7 @@ pub async fn check_username(
     req: web::Json<CheckUsernameRequest>,
 ) -> impl Responder {
     let username = &req.username;
+    info!("Received request to check username: {}", username);
     let result = sqlx::query!(
         "SELECT COUNT(*) as count FROM Users_ WHERE user_name = ?",
         username
@@ -34,6 +36,7 @@ pub async fn check_username(
     match result {
         Ok(record) => {
             let is_unique = record.count == 0;
+            info!("Username {} is unique: {}", username, is_unique);
             HttpResponse::Ok().json(CheckUsernameResponse { is_unique })
         }
         Err(e) => {
@@ -49,6 +52,7 @@ pub async fn check_email(
     req: web::Json<CheckEmailRequest>,
 ) -> impl Responder {
     let email = &req.email;
+    info!("Received request to check email: {}", email);
     let result = sqlx::query!(
         "SELECT COUNT(*) as count FROM Users_ WHERE user_email = ?",
         email
@@ -59,6 +63,7 @@ pub async fn check_email(
     match result {
         Ok(record) => {
             let is_unique = record.count == 0;
+            info!("Email {} is unique: {}", email, is_unique);
             HttpResponse::Ok().json(CheckEmailResponse { is_unique })
         }
         Err(e) => {
@@ -69,7 +74,6 @@ pub async fn check_email(
 }
 
 // register user to DB
-
 pub async fn register(
     pool: web::Data<MySqlPool>,
     req: web::Json<RegisterRequest>,
@@ -77,6 +81,7 @@ pub async fn register(
     let username = &req.username;
     let email = &req.email;
     let password = &req.password;
+    info!("Received request to register user: {}", username);
     
     // Encrypt password with bcrypt
     let hashed_password = match hash(password, DEFAULT_COST) {
@@ -99,10 +104,13 @@ pub async fn register(
     .await;
 
     match result {
-        Ok(_) => HttpResponse::Ok().json(RegisterResponse {
-            success: true,
-            message: "User registered successfully".into(),
-        }),
+        Ok(_) => {
+            info!("User {} registered successfully", username);
+            HttpResponse::Ok().json(RegisterResponse {
+                success: true,
+                message: "User registered successfully".into(),
+            })
+        }
         Err(e) => {
             error!("Failed to execute query: {}", e);
             HttpResponse::InternalServerError().json(RegisterResponse {
@@ -120,8 +128,9 @@ pub async fn login(
 ) -> impl Responder {
     let username = &req.username;
     let password = &req.password;
+    info!("Received login request for user: {}", username);
 
-    // 2. Get the user data from database with username
+    // 2. Get the user data from the database with username
     let result = sqlx::query!(
         "SELECT user_id, password_hash FROM Users_ WHERE user_name = ?",
         username
@@ -132,9 +141,10 @@ pub async fn login(
     let user = match result {
         Ok(user) => user,
         Err(_) => {
+            info!("Invalid username: {}", username);
             return HttpResponse::Unauthorized().json(LoginResponse {
                 success: false,
-                message: "Invalid username or password".into(),
+                message: "Invalid username".into(),
             });
         }
     };
@@ -143,66 +153,102 @@ pub async fn login(
     let valid = match verify(password, &user.password_hash) {
         Ok(valid) => valid,
         Err(_) => {
+            error!("Error when checking password for user: {}", username);
             return HttpResponse::Unauthorized().json(LoginResponse {
                 success: false,
-                message: "Invalid username or password".into(),
+                message: "Error when checking password".into(),
             });
         }
     };
 
     if !valid {
+        info!("Invalid password for user: {}", username);
         return HttpResponse::Unauthorized().json(LoginResponse {
             success: false,
-            message: "Invalid username or password".into(),
+            message: "Invalid password".into(),
         });
     }
 
-    // 4. Check if user already has an active session
-    let session_check = sqlx::query!(
-        "SELECT session_id FROM Sessions_ WHERE user_id = ?",
-        user.user_id
-    )
-    .fetch_optional(pool.get_ref())
-    .await;
-
-    if let Ok(Some(_)) = session_check {
-        return HttpResponse::BadRequest().json(LoginResponse {
-            success: false,
-            message: "User already has an active session".into(),
-        });
-    }
-
-    // 4-1 & 4-2. Create session ID with UUID and set expiration time
-    let session_id = Uuid::new_v4().to_string();
+    // 4. Generate a new session ID
+    let new_session_id = Uuid::new_v4().to_string();
     let expires_at = if req.remember_me {
         Utc::now() + Duration::days(10)
     } else {
         Utc::now() + Duration::minutes(30)
     };
 
-    // 5. Insert into Sessions_ table with (session_id, user_id, expiration_time)
-    let insert_result = sqlx::query!(
-        "INSERT INTO Sessions_ (session_id, user_id, expires_at, is_persistent) VALUES (?, ?, ?, ?)",
-        session_id,
-        user.user_id,
-        expires_at,
-        req.remember_me
+    // 5. Check if user already has a session
+    let session_check = sqlx::query!(
+        "SELECT session_id, expires_at FROM Sessions_ WHERE user_id = ?",
+        user.user_id
     )
-    .execute(pool.get_ref())
+    .fetch_optional(pool.get_ref())
     .await;
 
-    if let Err(e) = insert_result {
-        error!("Failed to insert session: {}", e);
-        return HttpResponse::InternalServerError().json(LoginResponse {
-            success: false,
-            message: "Failed to create session".into(),
-        });
-    }
+    match session_check {
+        Ok(Some(session)) => {
+            // Session exists, check if it has expired
+            if OffsetDateTime::now_utc() < session.expires_at {
+                info!("User {} already has an active session", username);
+                return HttpResponse::BadRequest().json(LoginResponse {
+                    success: false,
+                    message: "User already has an active session".into(),
+                });
+            } else {
+                // Update the expired session with a new session ID and expiration
+                let update_result = sqlx::query!(
+                    "UPDATE Sessions_ SET session_id = ?, expires_at = ?, is_persistent = ? WHERE user_id = ?",
+                    new_session_id,
+                    expires_at,
+                    req.remember_me,
+                    user.user_id
+                )
+                .execute(pool.get_ref())
+                .await;
 
-    // 6. Return session ID inside cookie to client
+                if let Err(e) = update_result {
+                    error!("Failed to update session for user {}: {}", username, e);
+                    return HttpResponse::InternalServerError().json(LoginResponse {
+                        success: false,
+                        message: "Failed to update session".into(),
+                    });
+                }
+            }
+        }
+        Ok(None) => {
+            // No active session found, insert a new one
+            let insert_result = sqlx::query!(
+                "INSERT INTO Sessions_ (session_id, user_id, expires_at, is_persistent) VALUES (?, ?, ?, ?)",
+                new_session_id,
+                user.user_id,
+                expires_at,
+                req.remember_me
+            )
+            .execute(pool.get_ref())
+            .await;
+
+            if let Err(e) = insert_result {
+                error!("Failed to insert session for user {}: {}", username, e);
+                return HttpResponse::InternalServerError().json(LoginResponse {
+                    success: false,
+                    message: "Failed to create session".into(),
+                });
+            }
+        }
+        Err(e) => {
+            error!("Failed to query session for user {}: {}", username, e);
+            return HttpResponse::InternalServerError().json(LoginResponse {
+                success: false,
+                message: "Failed to check session".into(),
+            });
+        }
+    };
+
+    // 6. Return session ID inside a cookie to the client
+    info!("User {} logged in successfully", username);
     HttpResponse::Ok()
         .cookie(
-            actix_web::cookie::Cookie::build("session_id", session_id.clone())
+            actix_web::cookie::Cookie::build("session_id", new_session_id.clone())
                 .http_only(true)
                 .finish(),
         )
@@ -212,38 +258,6 @@ pub async fn login(
         })
 }
 
-
-/*
-// Auto-login request and response
-#[derive(Deserialize)]
-pub struct AutoLoginRequest {
-}
-
-#[derive(Serialize)]
-pub struct AutoLoginResponse {
-    pub success: bool,
-    pub message: String,
-}
-*/
-
-/*
-DATABASE SCHEMA:
-CREATE TABLE Users_ (
-  user_id INT AUTO_INCREMENT PRIMARY KEY,
-  user_name VARCHAR(255) UNIQUE NOT NULL,
-  user_email VARCHAR(255) UNIQUE NOT NULL,
-  password_hash VARCHAR(255) NOT NULL
-);
-
-CREATE TABLE Sessions_ (
-  session_id VARCHAR(255) PRIMARY KEY,
-  user_id INT UNIQUE NOT NULL,
-  expires_at TIMESTAMP NOT NULL,
-  is_persistent BOOLEAN DEFAULT false,
-  FOREIGN KEY (user_id) REFERENCES Users_(user_id)
-);
-
-*/
 // auto_login logic
 pub async fn auto_login(
     pool: web::Data<MySqlPool>,
@@ -254,12 +268,16 @@ pub async fn auto_login(
     let session_id = match req.cookie("session_id") {
         Some(cookie) => cookie.value().to_string(),
         None => {
+            info!("Session ID not found in cookies for auto login");
             return HttpResponse::Unauthorized().json(AutoLoginResponse {
                 success: false,
                 message: "Session ID not found in cookies".into(),
+                username: "".into(),
             });
         }
     };
+
+    info!("Received auto login request with session ID: {}", session_id);
 
     // 2. Check whether session ID is valid (by fetching the session from Session table using session ID)
     let session_result = sqlx::query!(
@@ -283,9 +301,11 @@ pub async fn auto_login(
                 .execute(pool.get_ref())
                 .await;
 
+                info!("Session expired for session ID: {}", session_id);
                 return HttpResponse::Unauthorized().json(AutoLoginResponse {
                     success: false,
                     message: "Login is needed, session expired".into(),
+                    username: "".into(),
                 });
             }
 
@@ -300,6 +320,7 @@ pub async fn auto_login(
             match user_result {
                 Ok(user) => {
                     // 4. Return with session Id inside cookie
+                    info!("Auto login successful for user: {}", user.user_name);
                     HttpResponse::Ok()
                         .cookie(
                             actix_web::cookie::Cookie::build("session_id", session_id.clone())
@@ -309,22 +330,35 @@ pub async fn auto_login(
                         .json(AutoLoginResponse {
                             success: true,
                             message: format!("Welcome back, {}", user.user_name),
+                            username: user.user_name,
                         })
                 }
-                Err(_) => HttpResponse::InternalServerError().json(AutoLoginResponse {
-                    success: false,
-                    message: "Failed to fetch user information".into(),
-                }),
+                Err(e) => {
+                    error!("Failed to fetch user information for session ID {}: {}", session_id, e);
+                    HttpResponse::InternalServerError().json(AutoLoginResponse {
+                        success: false,
+                        message: "Failed to fetch user information".into(),
+                        username: "".into(),
+                    })
+                }
             }
         }
-        Ok(None) => HttpResponse::Unauthorized().json(AutoLoginResponse {
-            success: false,
-            message: "Invalid session ID".into(),
-        }),
-        Err(_) => HttpResponse::InternalServerError().json(AutoLoginResponse {
-            success: false,
-            message: "Failed to validate session".into(),
-        }),
+        Ok(None) => {
+            info!("Invalid session ID: {}", session_id);
+            HttpResponse::Unauthorized().json(AutoLoginResponse {
+                success: false,
+                message: "Invalid session ID".into(),
+                username: "".into(),
+            })
+        }
+        Err(e) => {
+            error!("Failed to validate session ID {}: {}", session_id, e);
+            HttpResponse::InternalServerError().json(AutoLoginResponse {
+                success: false,
+                message: "Failed to validate session".into(),
+                username: "".into(),
+            })
+        }
     }
 }
 
@@ -337,13 +371,16 @@ pub async fn logout(
     let session_id = match req.cookie("session_id") {
         Some(cookie) => cookie.value().to_string(),
         None => {
+            info!("Session ID does not exist in cookies for logout");
             return HttpResponse::BadRequest().json(LogoutResponse {
                 success: false,
                 message: "Session ID does not exist".into(),
             });
         }
     };
-    
+
+    info!("Received logout request with session ID: {}", session_id);
+
     // 2. Check whether the session exists and is valid
     let session_result = sqlx::query!(
         "SELECT expires_at FROM Sessions_ WHERE session_id = ?",
@@ -358,6 +395,7 @@ pub async fn logout(
 
             // 2-1. If session is expired, return failure with message: "already expired session"
             if session.expires_at < current_time {
+                info!("Session already expired for session ID: {}", session_id);
                 return HttpResponse::BadRequest().json(LogoutResponse {
                     success: false,
                     message: "Already expired session".into(),
@@ -373,12 +411,15 @@ pub async fn logout(
             .await;
 
             match delete_result {
-                Ok(_) => HttpResponse::Ok().json(LogoutResponse {
-                    success: true,
-                    message: "Logout successful".into(),
-                }),
+                Ok(_) => {
+                    info!("Logout successful for session ID: {}", session_id);
+                    HttpResponse::Ok().json(LogoutResponse {
+                        success: true,
+                        message: "Logout successful".into(),
+                    })
+                }
                 Err(e) => {
-                    error!("Failed to delete session: {}", e);
+                    error!("Failed to delete session ID {}: {}", session_id, e);
                     HttpResponse::InternalServerError().json(LogoutResponse {
                         success: false,
                         message: "Failed to logout".into(),
@@ -386,12 +427,15 @@ pub async fn logout(
                 }
             }
         }
-        Ok(None) => HttpResponse::BadRequest().json(LogoutResponse {
-            success: false,
-            message: "Session not found".into(),
-        }),
+        Ok(None) => {
+            info!("Session not found for session ID: {}", session_id);
+            HttpResponse::BadRequest().json(LogoutResponse {
+                success: false,
+                message: "Session not found".into(),
+            })
+        }
         Err(e) => {
-            error!("Failed to fetch session: {}", e);
+            error!("Failed to fetch session ID {}: {}", session_id, e);
             HttpResponse::InternalServerError().json(LogoutResponse {
                 success: false,
                 message: "Failed to check session".into(),

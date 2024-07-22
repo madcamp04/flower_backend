@@ -1,9 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-// #[derive(Deserialize)]
-// pub struct CheckUsernameRequest {
-//     pub username: String,
-// }
+#[derive(Deserialize)]
+pub struct AdminDefaultRequest {
+}
 
 #[derive(Serialize)]
 pub struct AdminDefaultResponse {

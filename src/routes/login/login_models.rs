@@ -63,6 +63,7 @@ pub struct AutoLoginRequest {
 pub struct AutoLoginResponse {
     pub success: bool,
     pub message: String,
+    pub username: String,
 }
 
 
