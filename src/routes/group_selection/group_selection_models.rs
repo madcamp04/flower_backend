@@ -18,3 +18,14 @@ pub struct GetGroupListResponse {
     pub groups: Vec<Group>,
 }
 
+#[derive(Deserialize)]
+pub struct AddGroupRequest {
+    // if needed
+    pub group_name: String,
+}
+// list of groups
+#[derive(Serialize)]
+pub struct AddGroupResponse {
+    pub success: bool,
+    pub message: String,
+}

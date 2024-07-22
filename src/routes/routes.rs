@@ -32,6 +32,7 @@ pub fn group_selection_configure(cfg: &mut web::ServiceConfig) {
         web::scope("/api-group-selection")
             .route("", web::get().to(group_selection_handlers::group_selection_get))  // Add this line
             .route("/", web::get().to(group_selection_handlers::group_selection_get))  // Add this line
-            .route("/group-list", web::post().to(group_selection_handlers::get_group_list))
+            .route("/group-list", web::get().to(group_selection_handlers::get_group_list))
+            .route("/add-group", web::post().to(group_selection_handlers::add_group))
     );
 }
