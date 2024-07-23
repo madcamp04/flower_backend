@@ -56,7 +56,7 @@ use super::project_view::project_view_handlers;
 
 pub fn project_view_configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
-        web::scope("/api-group-view")
+        web::scope("/api-project-view")
             .route("", web::get().to(project_view_handlers::project_view_get))  // Add this line
             .route("/", web::get().to(project_view_handlers::project_view_get))  // Add this line
             .route("/project-detail", web::post().to(project_view_handlers::get_project_detail))
