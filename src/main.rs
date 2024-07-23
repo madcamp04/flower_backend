@@ -1,4 +1,4 @@
-use actix_web::{web, App, HttpResponse, HttpServer, middleware::Logger};
+use actix_web::{middleware::Logger, web::{self, route}, App, HttpResponse, HttpServer};
 use sqlx::mysql::MySqlPoolOptions;
 use std::env;
 use dotenv::dotenv;
@@ -32,6 +32,7 @@ async fn main() -> std::io::Result<()> {
             .configure(routes::routes::login_configure) // Add this line
             .configure(routes::routes::group_selection_configure)
             .configure(routes::routes::group_view_configure)
+            .configure(routes::routes::project_view_configure)
     })
     .bind(server_address)?
     .run()
