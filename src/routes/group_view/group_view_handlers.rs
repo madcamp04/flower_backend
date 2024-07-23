@@ -640,7 +640,7 @@ pub async fn get_project_list(
 
     // Get the project list from Projects_ where group_id is the one from the previous query
     let projects_result = sqlx::query!(
-        "SELECT project_name, project_description 
+        "SELECT project_id, project_name, project_description 
          FROM Projects_
          WHERE group_id = ?",
         group_id
@@ -648,18 +648,65 @@ pub async fn get_project_list(
     .fetch_all(pool.get_ref())
     .await;
 
-    match projects_result {
-        Ok(records) => {
-            let projects: Vec<Project> = records.into_iter().map(|record| Project {
-                project_name: record.project_name,
-                tag_colors: Vec::new(), // Assuming we are not fetching tag_colors in this query
-            }).collect();
-
-            HttpResponse::Ok().json(GetProjectListResponse { projects })
-        },
+    let projects = match projects_result {
+        Ok(records) => records,
         Err(e) => {
             error!("Failed to fetch projects for group_id {}: {}", group_id, e);
-            HttpResponse::InternalServerError().json(GetProjectListResponse { projects: Vec::new() })
+            return HttpResponse::InternalServerError().json(GetProjectListResponse { projects: Vec::new() });
         }
+    };
+
+    // For each project, find all the tag_ids that are mapped with the corresponding project_id
+    let mut projects_with_tags = Vec::new();
+
+    for project in projects {
+        let tag_ids_result = sqlx::query!(
+            "SELECT tag_id 
+             FROM TagProjectMapping_
+             WHERE project_id = ?",
+            project.project_id
+        )
+        .fetch_all(pool.get_ref())
+        .await;
+
+        let tag_ids = match tag_ids_result {
+            Ok(records) => records.into_iter().map(|record| record.tag_id).collect::<Vec<_>>(),
+            Err(e) => {
+                error!("Failed to fetch tag_ids for project_id {}: {}", project.project_id, e);
+                Vec::new()
+            }
+        };
+
+        let tag_colors = if !tag_ids.is_empty() {
+            let query_str = format!(
+                "SELECT tag_color FROM Tags_ WHERE tag_id IN ({})",
+                tag_ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ")
+            );
+        
+            // Execute the query with dynamically provided parameters
+            let mut query = sqlx::query(&query_str);
+            for tag_id in tag_ids.clone() {
+                query = query.bind(tag_id);
+            }
+        
+            let tag_colors_result = query.fetch_all(pool.get_ref()).await;
+        
+            match tag_colors_result{
+                Ok(records) => records.into_iter().map(|record| record.get(0)).collect::<Vec<_>>(),
+                Err(e) => {
+                    info!("Failed to fetch tag_colors for tag_ids {:?}: {}", tag_ids, e);
+                    Vec::new()
+                }
+            }
+        } else {
+            Vec::new()
+        };
+
+        projects_with_tags.push(Project {
+            project_name: project.project_name,
+            tag_colors,
+        });
     }
+
+    HttpResponse::Ok().json(GetProjectListResponse { projects: projects_with_tags })
 }
