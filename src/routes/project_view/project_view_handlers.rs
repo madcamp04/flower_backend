@@ -111,6 +111,7 @@ pub async fn add_project(
     let owner_user_name = &request.owner_user_name;
     let group_name = &request.group_name;
     let project_name = &request.project_name;
+    let project_descr: &String = &request.project_descr;
     let tags = &request.tags;
 
     // Get the current user name using session ID in the cookie
@@ -179,8 +180,8 @@ pub async fn add_project(
 
     // Add project to Projects_
     let insert_result = sqlx::query!(
-        "INSERT INTO Projects_ (group_id, project_name) VALUES (?, ?)",
-        group_id, project_name
+        "INSERT INTO Projects_ (group_id, project_name, project_description) VALUES (?, ?, ?)",
+        group_id, project_name, project_descr
     )
     .execute(pool.get_ref())
     .await;
@@ -315,7 +316,7 @@ pub async fn get_task_detail(
     .fetch_all(pool.get_ref())
     .await;
 
-    match tasks_result {
+    match tasks_result {    
         Ok(records) => {
             let tasks: Vec<Task> = records.into_iter().map(|record| Task {
                 task_title: record.task_title,

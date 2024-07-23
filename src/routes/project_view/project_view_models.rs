@@ -22,6 +22,7 @@ pub struct AddProjectRequest {
     pub owner_user_name: String,
     pub group_name: String,
     pub project_name: String,
+    pub project_descr: String,
     pub tags: Vec<String>,
 }
 
