@@ -55,3 +55,22 @@ pub struct Task {
     pub project_name: String,
     pub tag_colors: Vec<String>,
 }
+
+
+#[derive(Deserialize)]
+pub struct AddTaskRequest {
+    pub owner_user_name: String,
+    pub group_name: String,
+    pub project_name: String,
+    pub worker_name: String,
+    pub task_title: String,
+    pub description: String,
+    pub start_time: String,
+    pub end_time: String,
+}
+
+#[derive(Serialize)]
+pub struct AddTaskResponse {
+    pub success: bool,
+    pub message: String,
+}

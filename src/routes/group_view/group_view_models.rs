@@ -63,6 +63,20 @@ pub struct GetTagListResponse {
     pub tags: Vec<Tag>,
 }
 
+#[derive(Deserialize)]
+pub struct AddTagRequest {
+    pub owner_user_name: String,
+    pub group_name: String,
+    pub tag_name: String,
+    pub tag_color: String,
+}
+
+
+#[derive(Serialize)]
+pub struct AddTagResponse {
+    pub success: bool,
+    pub message: String,
+}
 
 #[derive(Deserialize)]
 pub struct GetTaskListByTagListRequest {

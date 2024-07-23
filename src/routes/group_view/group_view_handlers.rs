@@ -6,6 +6,7 @@ use super::group_view_models::{
     GetWorkerListRequest, GetWorkerListResponse, Worker,
     AddWorkerRequest, AddWorkerResponse,
     GetTagListRequest, GetTagListResponse, Tag,
+    AddTagRequest, AddTagResponse,
     GetTaskListByTagListRequest, GetTaskListByTagListResponse, Task,
     GetTaskListByProjectNameRequest, GetTaskListByProjectNameResponse,
 };
@@ -238,6 +239,104 @@ pub async fn get_tag_list(
         Err(e) => {
             error!("Failed to fetch tags for group_id {}: {}", group_id, e);
             HttpResponse::InternalServerError().json(GetTagListResponse { tags: Vec::new() })
+        }
+    }
+}
+
+// Handler to add tag
+pub async fn add_tag(
+    pool: web::Data<MySqlPool>,
+    req: HttpRequest,
+    request: web::Json<AddTagRequest>,
+) -> impl Responder {
+    let owner_user_name = &request.owner_user_name;
+    let group_name = &request.group_name;
+    let tag_name = &request.tag_name;
+    let tag_color = &request.tag_color;
+
+    // Get the current user name using session ID in the cookie
+    let session_id = match req.cookie("session_id") {
+        Some(cookie) => cookie.value().to_string(),
+        None => {
+            info!("Session ID not found in cookies for add_tag");
+            return HttpResponse::BadRequest().json(AddTagResponse {
+                success: false,
+                message: "Session ID not found".to_string(),
+            });
+        }
+    };
+
+    let session_result = sqlx::query!(
+        "SELECT u.user_name FROM Sessions_ s
+         JOIN Users_ u ON s.user_id = u.user_id
+         WHERE s.session_id = ? AND s.expires_at > NOW()",
+        session_id
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let current_user_name = match session_result {
+        Ok(session) => session.user_name,
+        Err(_) => {
+            info!("Invalid or expired session ID: {}", session_id);
+            return HttpResponse::BadRequest().json(AddTagResponse {
+                success: false,
+                message: "Invalid or expired session ID".to_string(),
+            });
+        }
+    };
+
+    // Assert owner_user_name == current user name
+    if owner_user_name != &current_user_name {
+        return HttpResponse::BadRequest().json(AddTagResponse {
+            success: false,
+            message: "Unauthorized action".to_string(),
+        });
+    }
+
+    // Get the group_id with group_name from Groups_
+    let group_id_result = sqlx::query!(
+        "
+        SELECT g.group_id 
+        FROM Groups_ g
+        JOIN Users_ u ON g.owner_user_id = u.user_id
+        WHERE g.group_name = ? AND u.user_name = ?
+        ",
+        group_name, owner_user_name
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let group_id = match group_id_result {
+        Ok(record) => record.group_id,
+        Err(_) => {
+            info!("Group not found: {}", group_name);
+            return HttpResponse::BadRequest().json(AddTagResponse {
+                success: false,
+                message: "Group not found".to_string(),
+            });
+        }
+    };
+
+    // Add tag to Tags_ table
+    let insert_result = sqlx::query!(
+        "INSERT INTO Tags_ (group_id, tag_name, tag_color) VALUES (?, ?, ?)",
+        group_id, tag_name, tag_color
+    )
+    .execute(pool.get_ref())
+    .await;
+
+    match insert_result {
+        Ok(_) => HttpResponse::Ok().json(AddTagResponse {
+            success: true,
+            message: "Tag added successfully".to_string(),
+        }),
+        Err(e) => {
+            error!("Failed to add tag to group {}: {}", group_id, e);
+            HttpResponse::InternalServerError().json(AddTagResponse {
+                success: false,
+                message: "Failed to add tag".to_string(),
+            })
         }
     }
 }
