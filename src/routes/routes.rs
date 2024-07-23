@@ -41,7 +41,7 @@ use super::group_view::group_view_handlers;
 
 pub fn group_view_configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
-        web::scope("/api-view")
+        web::scope("/api-group-view")
             .route("", web::get().to(group_view_handlers::group_view_get))  // Add this line
             .route("/", web::get().to(group_view_handlers::group_view_get))  // Add this line
             .route("/worker-list", web::post().to(group_view_handlers::get_worker_list))
@@ -49,5 +49,18 @@ pub fn group_view_configure(cfg: &mut web::ServiceConfig) {
             .route("/tag-list", web::post().to(group_view_handlers::get_tag_list))
             .route("/task-list/by-tag-list", web::post().to(group_view_handlers::get_task_list_by_tag_list))
             .route("/task-list/by-project-name", web::post().to(group_view_handlers::get_task_list_by_project_name))
+    );
+}
+
+use super::project_view::project_view_handlers;
+
+pub fn project_view_configure(cfg: &mut web::ServiceConfig) {
+    cfg.service(
+        web::scope("/api-group-view")
+            .route("", web::get().to(project_view_handlers::project_view_get))  // Add this line
+            .route("/", web::get().to(project_view_handlers::project_view_get))  // Add this line
+            .route("/project-detail", web::post().to(project_view_handlers::get_project_detail))
+            .route("/add-project", web::post().to(project_view_handlers::add_project))
+            .route("/task-detail", web::post().to(project_view_handlers::get_task_detail))
     );
 }
