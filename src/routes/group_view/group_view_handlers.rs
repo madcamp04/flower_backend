@@ -1,7 +1,7 @@
 use actix_web::{web, HttpResponse, HttpRequest, Responder};
-use sqlx::{MySqlPool, Row};
+use sqlx::MySqlPool;
 use log::{error, info};
-use time::PrimitiveDateTime;
+// use time::PrimitiveDateTime;
 use super::group_view_models::{
     GetWorkerListRequest, GetWorkerListResponse, Worker,
     AddWorkerRequest, AddWorkerResponse,
@@ -9,6 +9,7 @@ use super::group_view_models::{
     AddTagRequest, AddTagResponse,
     GetTaskListByTagListRequest, GetTaskListByTagListResponse, Task,
     GetTaskListByProjectNameRequest, GetTaskListByProjectNameResponse,
+    GetProjectListRequest, GetProjectListResponse, Project
 };
 
 // Default handler for group selection root
@@ -542,17 +543,18 @@ pub async fn get_task_list_by_project_name(
         }
     };
 
-    // Get all tasks under the filtered projects
+    let project_ids_placeholder: String = project_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
+
     let tasks_result = sqlx::query!(
         "SELECT t.title AS task_title, u.user_name AS worker_name, t.start_time, t.end_time, t.description, p.project_name, GROUP_CONCAT(ta.tag_color SEPARATOR ',') AS tag_colors
         FROM Tasks_ t
         JOIN Users_ u ON t.worker_user_id = u.user_id
         JOIN Projects_ p ON t.project_id = p.project_id
         LEFT JOIN TagProjectMapping_ tpm ON t.project_id = tpm.project_id
-        LEFT JOIN Tags_ ta ON ta.tag_id = tpm.tag_id
-        WHERE t.project_id IN (?)
+        LEFT JOIN Tags_ ta ON tpm.tag_id = ta.tag_id AND ta.group_id = ?
+        WHERE p.project_id IN (?)
         GROUP BY t.task_id",
-        project_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
+        group_id, project_ids_placeholder
     )
     .fetch_all(pool.get_ref())
     .await;
@@ -566,14 +568,69 @@ pub async fn get_task_list_by_project_name(
                 end_time: record.end_time.to_string(),
                 description: record.description,
                 project_name: record.project_name,
-                tag_colors: record.tag_colors.expect("TAG COLORS EMPTY, NEVER").split(',').map(|s| s.to_string()).collect(),
+                tag_colors: record.tag_colors.unwrap_or_default().split(',').map(|s| s.to_string()).collect(),
             }).collect();
 
-            HttpResponse::Ok().json(GetTaskListByProjectNameResponse { tasks })
+            HttpResponse::Ok().json(GetTaskListByTagListResponse { tasks })
         },
         Err(e) => {
-            error!("Failed to fetch tasks for project_ids {:?}: {}", project_ids, e);
-            HttpResponse::InternalServerError().json(GetTaskListByProjectNameResponse { tasks: Vec::new() })
+            error!("Failed to fetch tasks for group_id {}: {}", group_id, e);
+            HttpResponse::InternalServerError().json(GetTaskListByTagListResponse { tasks: Vec::new() })
+        }
+    }
+}
+
+pub async fn get_project_list(
+    pool: web::Data<MySqlPool>,
+    _: HttpRequest,
+    request: web::Json<GetProjectListRequest>,
+) -> impl Responder {
+    let owner_user_name = &request.owner_user_name;
+    let group_name = &request.group_name;
+
+    // Get group_id using group_name and owner_user_name from Groups_
+    let group_id_result = sqlx::query!(
+        "
+        SELECT g.group_id 
+        FROM Groups_ g
+        JOIN Users_ u ON g.owner_user_id = u.user_id
+        WHERE g.group_name = ? AND u.user_name = ?
+        ",
+        group_name, owner_user_name
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let group_id = match group_id_result {
+        Ok(record) => record.group_id,
+        Err(_) => {
+            info!("Group not found: {}", group_name);
+            return HttpResponse::BadRequest().json(GetProjectListResponse { projects: Vec::new() });
+        }
+    };
+
+    // Get the project list from Projects_ where group_id is the one from the previous query
+    let projects_result = sqlx::query!(
+        "SELECT project_name, project_description 
+         FROM Projects_
+         WHERE group_id = ?",
+        group_id
+    )
+    .fetch_all(pool.get_ref())
+    .await;
+
+    match projects_result {
+        Ok(records) => {
+            let projects: Vec<Project> = records.into_iter().map(|record| Project {
+                project_name: record.project_name,
+                tag_colors: Vec::new(), // Assuming we are not fetching tag_colors in this query
+            }).collect();
+
+            HttpResponse::Ok().json(GetProjectListResponse { projects })
+        },
+        Err(e) => {
+            error!("Failed to fetch projects for group_id {}: {}", group_id, e);
+            HttpResponse::InternalServerError().json(GetProjectListResponse { projects: Vec::new() })
         }
     }
 }
