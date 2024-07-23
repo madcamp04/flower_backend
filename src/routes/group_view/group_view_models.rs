@@ -24,6 +24,11 @@ pub struct Task {
     pub tag_colors: Vec<String>,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct Project {
+    pub project_name: String,
+    pub tag_colors: Vec<String>,
+}
 // json format
 
 #[derive(Deserialize)]
@@ -101,4 +106,15 @@ pub struct GetTaskListByProjectNameRequest {
 #[derive(Serialize)]
 pub struct GetTaskListByProjectNameResponse {
     pub tasks: Vec<Task>,
+}
+
+#[derive(Deserialize)]
+pub struct GetProjectListRequest {
+    pub owner_user_name: String,
+    pub group_name: String,
+}
+
+#[derive(Serialize)]
+pub struct GetProjectListResponse {
+    pub projects: Vec<Project>
 }

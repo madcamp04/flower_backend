@@ -1,7 +1,8 @@
 use actix_web::{web, HttpResponse, HttpRequest, Responder};
 use sqlx::{MySqlPool, Row};
-use log::{error, info};
 use time::PrimitiveDateTime;
+use log::{error, info};
+// use time::PrimitiveDateTime;
 use super::group_view_models::{
     GetWorkerListRequest, GetWorkerListResponse, Worker,
     AddWorkerRequest, AddWorkerResponse,
@@ -9,6 +10,7 @@ use super::group_view_models::{
     AddTagRequest, AddTagResponse,
     GetTaskListByTagListRequest, GetTaskListByTagListResponse, Task,
     GetTaskListByProjectNameRequest, GetTaskListByProjectNameResponse,
+    GetProjectListRequest, GetProjectListResponse, Project
 };
 
 // Default handler for group selection root
@@ -350,7 +352,7 @@ pub async fn get_task_list_by_tag_list(
     let owner_user_name = &request.owner_user_name;
     let group_name = &request.group_name;
     let tags = &request.tags;
-
+    info!("get_task_list_by_tag_list");
     // Get group_id using group_name from Groups_
     let group_id_result = sqlx::query!(
         "
@@ -408,83 +410,89 @@ pub async fn get_task_list_by_tag_list(
             }
         }
     } else {
-        // Tag list is not empty, get tasks filtered by tags
-        let tags_placeholder = tags.iter().map(|_| "?").collect::<Vec<_>>().join(",");
-        let query = format!(
-            "SELECT tag_id FROM Tags_ WHERE tag_name IN ({}) AND group_id = ?",
-            tags_placeholder
+        // Tag list is not empty
+        info!("tag_list is not empty: {:?}", tags);
+        // let tag_names = tags.join(",");
+        let tag_names_placeholder = tags.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let tag_names_query_str = format!(
+            "SELECT tag_id FROM Tags_ WHERE group_id = ? AND tag_name IN ({})",
+            tag_names_placeholder
         );
-        let mut query_builder = sqlx::query(&query);
-
-        for tag in tags {
-            query_builder = query_builder.bind(tag);
+        
+        info!("Constructed query: {}", tag_names_query_str);
+        // Execute the query with dynamically provided parameters
+        let mut tag_names_query = sqlx::query(&tag_names_query_str);
+        tag_names_query = tag_names_query.bind(group_id); // Assuming group_id is defined
+        for tag_name in tags {
+            tag_names_query = tag_names_query.bind(tag_name);
         }
-        query_builder = query_builder.bind(group_id);
 
-        let tag_ids_result = query_builder.fetch_all(pool.get_ref()).await;
+        let tag_ids_result = tag_names_query.fetch_all(pool.get_ref()).await;
 
         let tag_ids: Vec<i32> = match tag_ids_result {
             Ok(records) => records.into_iter().map(|record| record.get("tag_id")).collect(),
-            Err(_) => {
-                info!("Tags not found for group: {}", group_name);
+            Err(e) => {
+                info!("Error executing query: {}", e);
+                info!("Tags not found in group: {}", group_name);
                 return HttpResponse::BadRequest().json(GetTaskListByTagListResponse { tasks: Vec::new() });
             }
         };
+
         if tag_ids.is_empty() {
-            info!("No tags found for group: {}", group_name);
+            info!("tag_ids is empty");
             return HttpResponse::BadRequest().json(GetTaskListByTagListResponse { tasks: Vec::new() });
         }
-    
-        let projects_query = format!(
-            "SELECT DISTINCT p.project_id
-             FROM Projects_ p
-             JOIN TagProjectMapping_ tpm ON p.project_id = tpm.project_id
-             WHERE tpm.tag_id IN ({}) AND p.group_id = ?",
-            tag_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
+        info!("get project_id_list with tag_id_list");
+        // 2. get project_id_list that is mapped with tag_id in the tag_id_list.
+        let tag_ids_placeholder = tag_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let tag_query_str = format!(
+            "SELECT DISTINCT project_id FROM TagProjectMapping_ WHERE tag_id IN ({})",
+            tag_ids_placeholder
         );
     
-        let mut projects_query_builder = sqlx::query(&projects_query);
-    
-        for tag_id in &tag_ids {
-            projects_query_builder = projects_query_builder.bind(tag_id);
+        // Execute the query with dynamically provided parameters
+        let mut tag_query = sqlx::query(&tag_query_str);
+        for tag_id in tag_ids {
+            tag_query = tag_query.bind(tag_id);
         }
-        projects_query_builder = projects_query_builder.bind(group_id);
-    
-        let projects_result = projects_query_builder.fetch_all(pool.get_ref()).await;
-    
-        let project_ids: Vec<i32> = match projects_result {
-            Ok(records) => records.into_iter().map(|record| record.get::<i32, _>("project_id")).collect(),
+
+        let project_ids_result = tag_query.fetch_all(pool.get_ref()).await;
+
+        let project_ids: Vec<i32> = match project_ids_result {
+            Ok(records) => records.into_iter().map(|record| record.get("project_id")).collect(),
             Err(_) => {
-                info!("Projects not found for group: {}", group_name);
+                info!("Projects not found for tags in group: {}", group_name);
                 return HttpResponse::BadRequest().json(GetTaskListByTagListResponse { tasks: Vec::new() });
             }
         };
-    
+
         if project_ids.is_empty() {
-            info!("No projects found for group: {}", group_name);
-            return HttpResponse::BadRequest().json(GetTaskListByTagListResponse { tasks: Vec::new() });
+            return HttpResponse::Ok().json(GetTaskListByTagListResponse { tasks: Vec::new() });
         }
-    
-        let tasks_query = format!(
+
+        info!("4. get list of tasks");
+        // 4. get list of tasks whose project_id is in project_id_list
+        // Dynamically construct the IN clause
+        let placeholders = project_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let query_str = format!(
             "SELECT t.title AS task_title, u.user_name AS worker_name, t.start_time, t.end_time, t.description, p.project_name, GROUP_CONCAT(ta.tag_color SEPARATOR ',') AS tag_colors
-             FROM Tasks_ t
-             JOIN Users_ u ON t.worker_user_id = u.user_id
-             JOIN Projects_ p ON t.project_id = p.project_id
-             LEFT JOIN TagProjectMapping_ tpm ON t.task_id = tpm.task_id
-             LEFT JOIN Tags_ ta ON ta.tag_id = tpm.tag_id
-             WHERE t.project_id IN ({}) 
-             GROUP BY t.task_id",
-            project_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
+            FROM Tasks_ t
+            JOIN Users_ u ON t.worker_user_id = u.user_id
+            JOIN Projects_ p ON t.project_id = p.project_id
+            LEFT JOIN TagProjectMapping_ tpm ON t.project_id = tpm.project_id
+            LEFT JOIN Tags_ ta ON tpm.tag_id = ta.tag_id AND ta.group_id = ?
+            WHERE p.project_id IN ({})
+            GROUP BY t.task_id", placeholders
         );
-    
-        let mut tasks_query_builder = sqlx::query(&tasks_query);
-    
-        for project_id in &project_ids {
-            tasks_query_builder = tasks_query_builder.bind(project_id);
+
+        // Execute the query with dynamically provided parameters
+        let mut query: sqlx::query::Query<sqlx::MySql, sqlx::mysql::MySqlArguments> = sqlx::query(&query_str).bind(group_id);
+        for project_id in project_ids {
+            query = query.bind(project_id);
         }
-    
-        let tasks_result = tasks_query_builder.fetch_all(pool.get_ref()).await;
-    
+
+        let tasks_result = query.fetch_all(pool.get_ref()).await;
+        
         match tasks_result {
             Ok(records) => {
                 let tasks: Vec<Task> = records.into_iter().map(|record| Task {
@@ -494,15 +502,15 @@ pub async fn get_task_list_by_tag_list(
                     end_time: record.get::<PrimitiveDateTime, _>("end_time").to_string(),
                     description: record.get("description"),
                     project_name: record.get("project_name"),
-                    tag_colors: record.get::<String, _>("tag_colors").split(',').map(|s| s.to_string()).collect(),
+                    tag_colors: record.get::<Option<String>, _>("tag_colors").unwrap_or_default().split(',').map(|s| s.to_string()).collect(),
                 }).collect();
-    
+
                 HttpResponse::Ok().json(GetTaskListByTagListResponse { tasks })
             },
             Err(e) => {
-                error!("Failed to fetch tasks for project_ids {:?}: {}", project_ids, e);
+                info!("Failed to fetch tasks for group_id {}: {}", group_id, e);
                 HttpResponse::InternalServerError().json(GetTaskListByTagListResponse { tasks: Vec::new() })
-            }    
+            }
         }
     }
 }
@@ -559,38 +567,99 @@ pub async fn get_task_list_by_project_name(
         }
     };
 
-    // Get all tasks under the filtered projects
-    let tasks_result = sqlx::query!(
+    // Dynamically construct the IN clause
+    let placeholders = project_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let query_str = format!(
         "SELECT t.title AS task_title, u.user_name AS worker_name, t.start_time, t.end_time, t.description, p.project_name, GROUP_CONCAT(ta.tag_color SEPARATOR ',') AS tag_colors
         FROM Tasks_ t
         JOIN Users_ u ON t.worker_user_id = u.user_id
         JOIN Projects_ p ON t.project_id = p.project_id
         LEFT JOIN TagProjectMapping_ tpm ON t.project_id = tpm.project_id
-        LEFT JOIN Tags_ ta ON ta.tag_id = tpm.tag_id
-        WHERE t.project_id IN (?)
-        GROUP BY t.task_id",
-        project_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
+        LEFT JOIN Tags_ ta ON tpm.tag_id = ta.tag_id AND ta.group_id = ?
+        WHERE p.project_id IN ({})
+        GROUP BY t.task_id", placeholders
+    );
+
+    // Execute the query with dynamically provided parameters
+    let mut query = sqlx::query(&query_str).bind(group_id);
+    for project_id in project_ids {
+        query = query.bind(project_id);
+    }
+
+    let tasks_result = query.fetch_all(pool.get_ref()).await;
+    
+    match tasks_result {
+        Ok(records) => {
+            let tasks: Vec<Task> = records.into_iter().map(|record| Task {
+                task_title: record.get("task_title"),
+                worker_name: record.get("worker_name"),
+                start_time: record.get::<PrimitiveDateTime, _>("start_time").to_string(),
+                end_time: record.get::<PrimitiveDateTime, _>("end_time").to_string(),
+                description: record.get("description"),
+                project_name: record.get("project_name"),
+                tag_colors: record.get::<Option<String>, _>("tag_colors").unwrap_or_default().split(',').map(|s| s.to_string()).collect(),
+            }).collect();
+
+            HttpResponse::Ok().json(GetTaskListByTagListResponse { tasks })
+        },
+        Err(e) => {
+            error!("Failed to fetch tasks for group_id {}: {}", group_id, e);
+            HttpResponse::InternalServerError().json(GetTaskListByTagListResponse { tasks: Vec::new() })
+        }
+    }
+}
+
+pub async fn get_project_list(
+    pool: web::Data<MySqlPool>,
+    _: HttpRequest,
+    request: web::Json<GetProjectListRequest>,
+) -> impl Responder {
+    let owner_user_name = &request.owner_user_name;
+    let group_name = &request.group_name;
+
+    // Get group_id using group_name and owner_user_name from Groups_
+    let group_id_result = sqlx::query!(
+        "
+        SELECT g.group_id 
+        FROM Groups_ g
+        JOIN Users_ u ON g.owner_user_id = u.user_id
+        WHERE g.group_name = ? AND u.user_name = ?
+        ",
+        group_name, owner_user_name
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let group_id = match group_id_result {
+        Ok(record) => record.group_id,
+        Err(_) => {
+            info!("Group not found: {}", group_name);
+            return HttpResponse::BadRequest().json(GetProjectListResponse { projects: Vec::new() });
+        }
+    };
+
+    // Get the project list from Projects_ where group_id is the one from the previous query
+    let projects_result = sqlx::query!(
+        "SELECT project_name, project_description 
+         FROM Projects_
+         WHERE group_id = ?",
+        group_id
     )
     .fetch_all(pool.get_ref())
     .await;
 
-    match tasks_result {
+    match projects_result {
         Ok(records) => {
-            let tasks: Vec<Task> = records.into_iter().map(|record| Task {
-                task_title: record.task_title,
-                worker_name: record.worker_name,
-                start_time: record.start_time.to_string(),
-                end_time: record.end_time.to_string(),
-                description: record.description,
+            let projects: Vec<Project> = records.into_iter().map(|record| Project {
                 project_name: record.project_name,
-                tag_colors: record.tag_colors.expect("TAG COLORS EMPTY, NEVER").split(',').map(|s| s.to_string()).collect(),
+                tag_colors: Vec::new(), // Assuming we are not fetching tag_colors in this query
             }).collect();
 
-            HttpResponse::Ok().json(GetTaskListByProjectNameResponse { tasks })
+            HttpResponse::Ok().json(GetProjectListResponse { projects })
         },
         Err(e) => {
-            error!("Failed to fetch tasks for project_ids {:?}: {}", project_ids, e);
-            HttpResponse::InternalServerError().json(GetTaskListByProjectNameResponse { tasks: Vec::new() })
+            error!("Failed to fetch projects for group_id {}: {}", group_id, e);
+            HttpResponse::InternalServerError().json(GetProjectListResponse { projects: Vec::new() })
         }
     }
 }

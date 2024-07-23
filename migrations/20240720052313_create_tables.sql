@@ -33,7 +33,7 @@ CREATE TABLE GroupUserMapping_ (
 );
 
 CREATE TABLE Tags_ (
-  tag_id INT PRIMARY KEY,
+  tag_id INT AUTO_INCREMENT PRIMARY KEY,
   group_id INT,
   tag_name VARCHAR(255) NOT NULL,
   tag_color VARCHAR(255) NOT NULL,
@@ -42,7 +42,7 @@ CREATE TABLE Tags_ (
 );
 
 CREATE TABLE Projects_ (
-  project_id INT PRIMARY KEY,
+  project_id INT AUTO_INCREMENT PRIMARY KEY,
   group_id INT,
   project_name VARCHAR(255) NOT NULL,
   project_description TEXT NOT NULL,
@@ -59,7 +59,7 @@ CREATE TABLE TagProjectMapping_ (
 );
 
 CREATE TABLE Tasks_ (
-  task_id INT PRIMARY KEY,
+  task_id INT AUTO_INCREMENT PRIMARY KEY,
   project_id INT,
   worker_user_id INT,
   title VARCHAR(255) NOT NULL,
@@ -84,10 +84,10 @@ INSERT INTO Users_ (user_id, user_name, user_email, password_hash)
 VALUES (1, 'admin', 'admin', 'admin');
 
 INSERT INTO Sessions_ (session_id, user_id, expires_at, is_persistent)
-VALUES ('admin123', 1, TIMESTAMP '2040-01-01 00:00:00', true);
+VALUES ('admin123', 1, TIMESTAMP '2025-01-01 23:59:59', true);
 
 INSERT INTO Users_ (user_id, user_name, user_email, password_hash)
 VALUES (2, 'worker', 'worker', 'worker');
 
 INSERT INTO Sessions_ (session_id, user_id, expires_at, is_persistent)
-VALUES ('worker123', 1, TIMESTAMP '2040-01-01 00:00:00', true);
+VALUES ('worker123', 2, TIMESTAMP '2025-01-01 23:59:59', true);

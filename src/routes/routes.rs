@@ -50,6 +50,7 @@ pub fn group_view_configure(cfg: &mut web::ServiceConfig) {
             .route("/add-tag", web::post().to(group_view_handlers::add_tag))
             .route("/task-list/by-tag-list", web::post().to(group_view_handlers::get_task_list_by_tag_list))
             .route("/task-list/by-project-name", web::post().to(group_view_handlers::get_task_list_by_project_name))
+            .route("/project-list", web::post().to(group_view_handlers::get_project_list))
     );
 }
 
