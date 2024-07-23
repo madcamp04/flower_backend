@@ -31,6 +31,7 @@ async fn main() -> std::io::Result<()> {
             .configure(routes::routes::admin_configure)
             .configure(routes::routes::login_configure) // Add this line
             .configure(routes::routes::group_selection_configure)
+            .configure(routes::routes::group_view_configure)
     })
     .bind(server_address)?
     .run()

@@ -19,7 +19,8 @@ CREATE TABLE Groups_ (
   group_id INT AUTO_INCREMENT PRIMARY KEY,
   group_name VARCHAR(255) NOT NULL,
   owner_user_id INT NOT NULL,
-  FOREIGN KEY (owner_user_id) REFERENCES Users_(user_id)
+  FOREIGN KEY (owner_user_id) REFERENCES Users_(user_id),
+  UNIQUE (owner_user_id, group_name) -- no same group under same owner
 );
 
 CREATE TABLE GroupUserMapping_ (
@@ -34,17 +35,19 @@ CREATE TABLE GroupUserMapping_ (
 CREATE TABLE Tags_ (
   tag_id INT PRIMARY KEY,
   group_id INT,
-  tag_name VARCHAR(255),
-  tag_color VARCHAR(255),
-  FOREIGN KEY (group_id) REFERENCES Groups_(group_id)
+  tag_name VARCHAR(255) NOT NULL,
+  tag_color VARCHAR(255) NOT NULL,
+  FOREIGN KEY (group_id) REFERENCES Groups_(group_id),
+  UNIQUE (group_id, tag_name) -- no same tags under same group
 );
 
 CREATE TABLE Projects_ (
   project_id INT PRIMARY KEY,
   group_id INT,
   project_name VARCHAR(255) NOT NULL,
-  project_description TEXT,
-  FOREIGN KEY (group_id) REFERENCES Groups_(group_id)
+  project_description TEXT NOT NULL,
+  FOREIGN KEY (group_id) REFERENCES Groups_(group_id),
+  UNIQUE (group_id, project_name) -- no same project under same group
 );
 
 CREATE TABLE TagProjectMapping_ (
@@ -60,11 +63,12 @@ CREATE TABLE Tasks_ (
   project_id INT,
   worker_user_id INT,
   title VARCHAR(255) NOT NULL,
-  description TEXT,
-  start_time DATETIME,
-  end_time DATETIME,
+  description TEXT NOT NULL,
+  start_time DATETIME NOT NULL,
+  end_time DATETIME NOT NULL,
   FOREIGN KEY (project_id) REFERENCES Projects_(project_id),
-  FOREIGN KEY (worker_user_id) REFERENCES Users_(user_id)
+  FOREIGN KEY (worker_user_id) REFERENCES Users_(user_id),
+  UNIQUE (project_id, title) -- no same task under same project
 );
 
 CREATE TABLE Dependencies_ (
