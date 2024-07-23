@@ -1,4 +1,4 @@
-use actix_web::{middleware::Logger, web::{self, route}, App, HttpResponse, HttpServer};
+use actix_web::{middleware::Logger, web, App, HttpResponse, HttpServer};
 use sqlx::mysql::MySqlPoolOptions;
 use std::env;
 use dotenv::dotenv;
