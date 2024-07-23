@@ -85,3 +85,9 @@ VALUES (1, 'admin', 'admin', 'admin');
 
 INSERT INTO Sessions_ (session_id, user_id, expires_at, is_persistent)
 VALUES ('admin123', 1, TIMESTAMP '2040-01-01 00:00:00', true);
+
+INSERT INTO Users_ (user_id, user_name, user_email, password_hash)
+VALUES (2, 'worker', 'worker', 'worker');
+
+INSERT INTO Sessions_ (session_id, user_id, expires_at, is_persistent)
+VALUES ('worker123', 1, TIMESTAMP '2040-01-01 00:00:00', true);

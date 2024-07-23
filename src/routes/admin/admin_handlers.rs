@@ -8,7 +8,7 @@ pub async fn session_reset(
 ) -> impl Responder {
     // Attempt to delete all sessions from the Sessions_ table
     let result = sqlx::query!(
-        "DELETE FROM Sessions_ WHERE user_id != 1"
+        "DELETE FROM Sessions_ WHERE user_id NOT IN (1, 2)"
     )
     .execute(pool.get_ref())
     .await;
