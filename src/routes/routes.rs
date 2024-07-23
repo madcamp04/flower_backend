@@ -32,7 +32,22 @@ pub fn group_selection_configure(cfg: &mut web::ServiceConfig) {
         web::scope("/api-group-selection")
             .route("", web::get().to(group_selection_handlers::group_selection_get))  // Add this line
             .route("/", web::get().to(group_selection_handlers::group_selection_get))  // Add this line
-            .route("/group-list", web::get().to(group_selection_handlers::get_group_list))
+            .route("/group-list", web::post().to(group_selection_handlers::get_group_list))
             .route("/add-group", web::post().to(group_selection_handlers::add_group))
+    );
+}
+
+use super::group_view::group_view_handlers;
+
+pub fn group_view_configure(cfg: &mut web::ServiceConfig) {
+    cfg.service(
+        web::scope("/api-view")
+            .route("", web::get().to(group_view_handlers::group_view_get))  // Add this line
+            .route("/", web::get().to(group_view_handlers::group_view_get))  // Add this line
+            .route("/worker-list", web::post().to(group_view_handlers::get_worker_list))
+            .route("/add-worker", web::post().to(group_view_handlers::add_worker))
+            .route("/tag-list", web::post().to(group_view_handlers::get_tag_list))
+            .route("/task-list/by-tag-list", web::post().to(group_view_handlers::get_task_list_by_tag_list))
+            .route("/task-list/by-project-name", web::post().to(group_view_handlers::get_task_list_by_project_name))
     );
 }

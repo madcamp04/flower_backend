@@ -18,6 +18,7 @@ pub async fn get_group_list(
     _: web::Json<GetGroupListRequest>,
 ) -> impl Responder {
     // Initialize an empty group list response
+    info!("Received request to get group list");
     let mut response = GetGroupListResponse {
         groups: Vec::new(),
     };

@@ -250,6 +250,7 @@ pub async fn login(
         .cookie(
             actix_web::cookie::Cookie::build("session_id", new_session_id.clone())
                 .http_only(true)
+                .path("/")
                 .finish(),
         )
         .json(LoginResponse {
@@ -325,6 +326,7 @@ pub async fn auto_login(
                         .cookie(
                             actix_web::cookie::Cookie::build("session_id", session_id.clone())
                                 .http_only(true)
+                                .path("/")
                                 .finish(),
                         )
                         .json(AutoLoginResponse {
