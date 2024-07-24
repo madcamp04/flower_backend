@@ -5,6 +5,7 @@ use time::{PrimitiveDateTime, macros::format_description};
 use super::project_view_models::{
     GetProjectDetailRequest, GetProjectDetailResponse,
     AddProjectRequest, AddProjectResponse,
+    UpdateProjectRequest, UpdateProjectResponse,
     GetTaskDetailRequest, GetTaskDetailResponse, Task,
     AddTaskRequest, AddTaskResponse,
 };
@@ -245,6 +246,176 @@ pub async fn add_project(
     HttpResponse::Ok().json(AddProjectResponse {
         success: true,
         message: "Project added successfully".to_string(),
+    })
+}
+
+pub async fn update_project(
+    pool: web::Data<MySqlPool>,
+    req: HttpRequest,
+    request: web::Json<UpdateProjectRequest>,
+) -> impl Responder {
+    let owner_user_name = &request.owner_user_name;
+    let group_name = &request.group_name;
+    let project_name = &request.project_name;
+    let new_project_name = &request.new_project_name;
+    let new_project_descr = &request.new_project_descr;
+    let new_tags = &request.new_tags;
+
+    // Get the current user name using session ID in the cookie
+    let session_id = match req.cookie("session_id") {
+        Some(cookie) => cookie.value().to_string(),
+        None => {
+            info!("Session ID not found in cookies for update_project");
+            return HttpResponse::BadRequest().json(UpdateProjectResponse {
+                success: false,
+                message: "Session ID not found".to_string(),
+            });
+        }
+    };
+
+    let session_result = sqlx::query!(
+        "SELECT u.user_name FROM Sessions_ s
+            JOIN Users_ u ON s.user_id = u.user_id
+            WHERE s.session_id = ? AND s.expires_at > NOW()",
+        session_id
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let current_user_name = match session_result {
+        Ok(session) => session.user_name,
+        Err(_) => {
+            info!("Invalid or expired session ID: {}", session_id);
+            return HttpResponse::BadRequest().json(UpdateProjectResponse {
+                success: false,
+                message: "Invalid or expired session ID".to_string(),
+            });
+        }
+    };
+
+    // Assert owner_user_name == current user name
+    if owner_user_name != &current_user_name {
+        return HttpResponse::BadRequest().json(UpdateProjectResponse {
+            success: false,
+            message: "Unauthorized action".to_string(),
+        });
+    }
+
+    // Get group_id using group_name from Groups_
+    let group_id_result = sqlx::query!(
+        "
+        SELECT g.group_id 
+        FROM Groups_ g
+        JOIN Users_ u ON g.owner_user_id = u.user_id
+        WHERE g.group_name = ? AND u.user_name = ?
+        ",
+        group_name, owner_user_name
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let group_id = match group_id_result {
+        Ok(record) => record.group_id,
+        Err(_) => {
+            info!("Group not found: {}", group_name);
+            return HttpResponse::BadRequest().json(UpdateProjectResponse {
+                success: false,
+                message: "Group not found".to_string(),
+            });
+        }
+    };
+
+    // Get project_id using project_name from Projects_
+    let project_id_result = sqlx::query!(
+        "
+        SELECT p.project_id 
+        FROM Projects_ p
+        WHERE p.group_id = ? AND p.project_name = ?
+        ",
+        group_id, project_name
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let project_id = match project_id_result {
+        Ok(record) => record.project_id,
+        Err(_) => {
+            info!("Project not found: {}", project_name);
+            return HttpResponse::BadRequest().json(UpdateProjectResponse {
+                success: false,
+                message: "Project not found".to_string(),
+            });
+        }
+    };
+
+    // Update project details in Projects_
+    let update_result = sqlx::query!(
+        "
+        UPDATE Projects_
+        SET project_name = ?, project_description = ?
+        WHERE project_id = ?
+        ",
+        new_project_name, new_project_descr, project_id
+    )
+    .execute(pool.get_ref())
+    .await;
+
+    if let Err(e) = update_result {
+        error!("Failed to update project {}: {}", project_id, e);
+        return HttpResponse::InternalServerError().json(UpdateProjectResponse {
+            success: false,
+            message: "Failed to update project".to_string(),
+        });
+    }
+
+    // Clear existing tags from TagProjectMapping_
+    let clear_tags_result = sqlx::query!(
+        "DELETE FROM TagProjectMapping_ WHERE project_id = ?",
+        project_id
+    )
+    .execute(pool.get_ref())
+    .await;
+
+    if let Err(e) = clear_tags_result {
+        error!("Failed to clear tags for project {}: {}", project_id, e);
+        return HttpResponse::InternalServerError().json(UpdateProjectResponse {
+            success: false,
+            message: "Failed to clear project tags".to_string(),
+        });
+    }
+
+    // Add new tags to TagProjectMapping_
+    for tag_name in new_tags {
+        let tag_id_result = sqlx::query!(
+            "SELECT tag_id FROM Tags_ WHERE group_id = ? AND tag_name = ?",
+            group_id, tag_name
+        )
+        .fetch_one(pool.get_ref())
+        .await;
+
+        let tag_id = match tag_id_result {
+            Ok(record) => record.tag_id,
+            Err(_) => {
+                info!("Tag not found: {}", tag_name);
+                continue;
+            }
+        };
+
+        let insert_tag_mapping_result = sqlx::query!(
+            "INSERT INTO TagProjectMapping_ (project_id, tag_id) VALUES (?, ?)",
+            project_id, tag_id
+        )
+        .execute(pool.get_ref())
+        .await;
+
+        if let Err(e) = insert_tag_mapping_result {
+            error!("Failed to add tag mapping for project {}: {}", project_id, e);
+        }
+    }
+
+    HttpResponse::Ok().json(UpdateProjectResponse {
+        success: true,
+        message: "Project updated successfully".to_string(),
     })
 }
 

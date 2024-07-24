@@ -65,7 +65,7 @@ pub fn project_view_configure(cfg: &mut web::ServiceConfig) {
             .route("/", web::get().to(project_view_handlers::project_view_get))  // Add this line
             .route("/project-detail", web::post().to(project_view_handlers::get_project_detail))
             .route("/add-project", web::post().to(project_view_handlers::add_project))
-            // .route("/update-project", web::post().to(project_view_handlers::update_project))
+            .route("/update-project", web::post().to(project_view_handlers::update_project))
             .route("/task-detail", web::post().to(project_view_handlers::get_task_detail))
             .route("/add-task", web::post().to(project_view_handlers::add_task))
             // .route("/update-task", web::post().to(project_view_handlers::update_task))

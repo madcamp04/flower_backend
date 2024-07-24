@@ -32,6 +32,22 @@ pub struct AddProjectResponse {
     pub message: String,
 }
 
+#[derive(Deserialize)]
+pub struct UpdateProjectRequest {
+    pub owner_user_name: String,
+    pub group_name: String,
+    pub project_name: String,
+    pub new_project_name: String,
+    pub new_project_descr: String,
+    pub new_tags: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct UpdateProjectResponse {
+    pub success: bool,
+    pub message: String,
+}
+
 
 #[derive(Deserialize)]
 pub struct GetTaskDetailRequest {
