@@ -48,6 +48,18 @@ pub struct UpdateProjectResponse {
     pub message: String,
 }
 
+#[derive(Deserialize)]
+pub struct DeleteProjectRequest {
+    pub owner_user_name: String,
+    pub group_name: String,
+    pub project_name: String,
+}
+
+#[derive(Serialize)]
+pub struct DeleteProjectResponse {
+    pub success: bool,
+    pub message: String,
+}
 
 #[derive(Deserialize)]
 pub struct GetTaskDetailRequest {
@@ -108,6 +120,20 @@ pub struct UpdateTaskRequest {
 
 #[derive(Serialize)]
 pub struct UpdateTaskResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(Deserialize)]
+pub struct DeleteTaskRequest {
+    pub owner_user_name: String,
+    pub group_name: String,
+    pub project_name: String,
+    pub task_title: String,
+}
+
+#[derive(Serialize)]
+pub struct DeleteTaskResponse {
     pub success: bool,
     pub message: String,
 }

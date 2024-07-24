@@ -68,8 +68,10 @@ pub fn project_view_configure(cfg: &mut web::ServiceConfig) {
             .route("/project-detail", web::post().to(project_view_handlers::get_project_detail))
             .route("/add-project", web::post().to(project_view_handlers::add_project))
             .route("/update-project", web::patch().to(project_view_handlers::update_project))
+            .route("/delete-project", web::delete().to(project_view_handlers::delete_project))
             .route("/task-detail", web::post().to(project_view_handlers::get_task_detail))
             .route("/add-task", web::post().to(project_view_handlers::add_task))
             .route("/update-task", web::patch().to(project_view_handlers::update_task))
+            .route("/delete-task", web::delete().to(project_view_handlers::delete_task))
     );
 }
