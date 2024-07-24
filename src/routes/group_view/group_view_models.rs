@@ -100,6 +100,21 @@ pub struct UpdateTagResponse {
 }
 
 #[derive(Deserialize)]
+pub struct DeleteTagRequest {
+    pub owner_user_name: String,
+    pub group_name: String,
+    pub tag_name: String,
+}
+
+
+#[derive(Serialize)]
+pub struct DeleteTagResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+
+#[derive(Deserialize)]
 pub struct GetTaskListByTagListRequest {
     pub owner_user_name: String,
     pub group_name: String,

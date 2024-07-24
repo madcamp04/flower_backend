@@ -35,7 +35,7 @@ pub fn group_selection_configure(cfg: &mut web::ServiceConfig) {
             .route("/group-list", web::post().to(group_selection_handlers::get_group_list))
             .route("/add-group", web::post().to(group_selection_handlers::add_group))
             .route("/update-group", web::patch().to(group_selection_handlers::update_group))
-            .route("/delete-group", web::patch().to(group_selection_handlers::delete_group))
+            .route("/delete-group", web::delete().to(group_selection_handlers::delete_group))
     );
 }
 
@@ -51,6 +51,7 @@ pub fn group_view_configure(cfg: &mut web::ServiceConfig) {
             .route("/tag-list", web::post().to(group_view_handlers::get_tag_list))
             .route("/add-tag", web::post().to(group_view_handlers::add_tag))
             .route("/update-tag", web::patch().to(group_view_handlers::update_tag))
+            .route("/delete-tag", web::delete().to(group_view_handlers::delete_tag))
             .route("/task-list/by-tag-list", web::post().to(group_view_handlers::get_task_list_by_tag_list))
             .route("/task-list/by-project-name", web::post().to(group_view_handlers::get_task_list_by_project_name))
             .route("/project-list", web::post().to(group_view_handlers::get_project_list))

@@ -9,6 +9,7 @@ use super::group_view_models::{
     GetTagListRequest, GetTagListResponse, Tag,
     AddTagRequest, AddTagResponse,
     UpdateTagRequest, UpdateTagResponse,
+    DeleteTagRequest, DeleteTagResponse,
     GetTaskListByTagListRequest, GetTaskListByTagListResponse, Task,
     GetTaskListByProjectNameRequest, GetTaskListByProjectNameResponse,
     GetProjectListRequest, GetProjectListResponse, Project
@@ -469,6 +470,179 @@ pub async fn update_tag(
             HttpResponse::InternalServerError().json(UpdateTagResponse {
                 success: false,
                 message: "Failed to update tag".to_string(),
+            })
+        }
+    }
+}
+
+pub async fn delete_tag(
+    pool: web::Data<MySqlPool>,
+    req: HttpRequest,
+    request: web::Json<DeleteTagRequest>,
+) -> impl Responder {
+    let owner_user_name = &request.owner_user_name;
+    let group_name = &request.group_name;
+    let tag_name = &request.tag_name;
+
+    // Get the current user name using session ID in the cookie
+    let session_id = match req.cookie("session_id") {
+        Some(cookie) => cookie.value().to_string(),
+        None => {
+            info!("Session ID not found in cookies for delete_tag");
+            return HttpResponse::BadRequest().json(DeleteTagResponse {
+                success: false,
+                message: "Session ID not found".to_string(),
+            });
+        }
+    };
+
+    let session_result = sqlx::query!(
+        "SELECT u.user_name FROM Sessions_ s
+         JOIN Users_ u ON s.user_id = u.user_id
+         WHERE s.session_id = ? AND s.expires_at > NOW()",
+        session_id
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let current_user_name = match session_result {
+        Ok(session) => session.user_name,
+        Err(_) => {
+            info!("Invalid or expired session ID: {}", session_id);
+            return HttpResponse::BadRequest().json(DeleteTagResponse {
+                success: false,
+                message: "Invalid or expired session ID".to_string(),
+            });
+        }
+    };
+
+    // Assert owner_user_name == current user name
+    if owner_user_name != &current_user_name {
+        return HttpResponse::BadRequest().json(DeleteTagResponse {
+            success: false,
+            message: "Unauthorized action".to_string(),
+        });
+    }
+
+    // Get the group_id with group_name from Groups_
+    let group_id_result = sqlx::query!(
+        "
+        SELECT g.group_id 
+        FROM Groups_ g
+        JOIN Users_ u ON g.owner_user_id = u.user_id
+        WHERE g.group_name = ? AND u.user_name = ?
+        ",
+        group_name, owner_user_name
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let group_id = match group_id_result {
+        Ok(record) => record.group_id,
+        Err(_) => {
+            info!("Group not found: {}", group_name);
+            return HttpResponse::BadRequest().json(DeleteTagResponse {
+                success: false,
+                message: "Group not found".to_string(),
+            });
+        }
+    };
+
+    // Check if the tag exists and get its ID
+    let tag_id_result = sqlx::query!(
+        "SELECT tag_id FROM Tags_ WHERE group_id = ? AND tag_name = ?",
+        group_id, tag_name
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let tag_id = match tag_id_result {
+        Ok(record) => record.tag_id,
+        Err(_) => {
+            info!("Tag not found: {}", tag_name);
+            return HttpResponse::BadRequest().json(DeleteTagResponse {
+                success: false,
+                message: "Tag not found".to_string(),
+            });
+        }
+    };
+
+    // Check if any projects are associated with this tag
+    let project_ids_result = sqlx::query!(
+        "SELECT project_id FROM TagProjectMapping_ WHERE tag_id = ?",
+        tag_id
+    )
+    .fetch_all(pool.get_ref())
+    .await;
+
+    let project_ids: Vec<i32> = match project_ids_result {
+        Ok(records) => records.into_iter().map(|record| record.project_id).collect(),
+        Err(_) => {
+            // No projects associated with this tag
+            Vec::new()
+        }
+    };
+
+    for project_id in &project_ids {
+        let tag_count_result = sqlx::query!(
+            "SELECT COUNT(*) as tag_count FROM TagProjectMapping_ WHERE project_id = ?",
+            project_id
+        )
+        .fetch_one(pool.get_ref())
+        .await;
+
+        let tag_count = match tag_count_result {
+            Ok(record) => record.tag_count,
+            Err(_) => {
+                return HttpResponse::InternalServerError().json(DeleteTagResponse {
+                    success: false,
+                    message: "Failed to check tag count for project".to_string(),
+                });
+            }
+        };
+
+        if tag_count <= 1 {
+            return HttpResponse::BadRequest().json(DeleteTagResponse {
+                success: false,
+                message: "Cannot delete the tag as it is the only tag for a project".to_string(),
+            });
+        }
+    }
+
+    // Remove all mappings from TagProjectMapping_ table related to this tag
+    let delete_mappings_result = sqlx::query!(
+        "DELETE FROM TagProjectMapping_ WHERE tag_id = ?",
+        tag_id
+    )
+    .execute(pool.get_ref())
+    .await;
+
+    if let Err(e) = delete_mappings_result {
+        error!("Failed to delete tag mappings for tag_id {}: {}", tag_id, e);
+        return HttpResponse::InternalServerError().json(DeleteTagResponse {
+            success: false,
+            message: "Failed to delete tag mappings".to_string(),
+        });
+    }
+
+    // Remove the tag from Tags_ table
+    let delete_tag_result = sqlx::query!(
+        "DELETE FROM Tags_ WHERE tag_id = ?",
+        tag_id
+    )
+    .execute(pool.get_ref())
+    .await;
+
+    match delete_tag_result {
+        Ok(_) => HttpResponse::Ok().json(DeleteTagResponse {
+            success: true,
+            message: "Tag deleted successfully".to_string(),
+        }),
+        Err(e) => {
+            error!("Failed to delete tag {}: {}", tag_id, e);
+            HttpResponse::InternalServerError().json(DeleteTagResponse {
+                success: false,
+                message: "Failed to delete tag".to_string(),
             })
         }
     }
