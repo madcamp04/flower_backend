@@ -326,10 +326,10 @@ pub async fn update_project(
         }
     };
 
-    // Get project_id using project_name from Projects_
-    let project_id_result = sqlx::query!(
+    // Get project_id and current details using project_name from Projects_
+    let project_details_result = sqlx::query!(
         "
-        SELECT p.project_id 
+        SELECT p.project_id, p.project_name, p.project_description 
         FROM Projects_ p
         WHERE p.group_id = ? AND p.project_name = ?
         ",
@@ -338,8 +338,8 @@ pub async fn update_project(
     .fetch_one(pool.get_ref())
     .await;
 
-    let project_id = match project_id_result {
-        Ok(record) => record.project_id,
+    let (project_id, current_project_name, current_project_descr) = match project_details_result {
+        Ok(record) => (record.project_id, record.project_name, record.project_description),
         Err(_) => {
             info!("Project not found: {}", project_name);
             return HttpResponse::BadRequest().json(UpdateProjectResponse {
@@ -349,6 +349,19 @@ pub async fn update_project(
         }
     };
 
+    // Determine the new project name and description, maintaining current values if new ones are empty
+    let final_project_name = if new_project_name.is_empty() {
+        &current_project_name
+    } else {
+        new_project_name
+    };
+
+    let final_project_descr = if new_project_descr.is_empty() {
+        &current_project_descr
+    } else {
+        new_project_descr
+    };
+
     // Update project details in Projects_
     let update_result = sqlx::query!(
         "
@@ -356,7 +369,7 @@ pub async fn update_project(
         SET project_name = ?, project_description = ?
         WHERE project_id = ?
         ",
-        new_project_name, new_project_descr, project_id
+        final_project_name, final_project_descr, project_id
     )
     .execute(pool.get_ref())
     .await;
@@ -369,48 +382,50 @@ pub async fn update_project(
         });
     }
 
-    // Clear existing tags from TagProjectMapping_
-    let clear_tags_result = sqlx::query!(
-        "DELETE FROM TagProjectMapping_ WHERE project_id = ?",
-        project_id
-    )
-    .execute(pool.get_ref())
-    .await;
-
-    if let Err(e) = clear_tags_result {
-        error!("Failed to clear tags for project {}: {}", project_id, e);
-        return HttpResponse::InternalServerError().json(UpdateProjectResponse {
-            success: false,
-            message: "Failed to clear project tags".to_string(),
-        });
-    }
-
-    // Add new tags to TagProjectMapping_
-    for tag_name in new_tags {
-        let tag_id_result = sqlx::query!(
-            "SELECT tag_id FROM Tags_ WHERE group_id = ? AND tag_name = ?",
-            group_id, tag_name
-        )
-        .fetch_one(pool.get_ref())
-        .await;
-
-        let tag_id = match tag_id_result {
-            Ok(record) => record.tag_id,
-            Err(_) => {
-                info!("Tag not found: {}", tag_name);
-                continue;
-            }
-        };
-
-        let insert_tag_mapping_result = sqlx::query!(
-            "INSERT INTO TagProjectMapping_ (project_id, tag_id) VALUES (?, ?)",
-            project_id, tag_id
+    // If new_tags is not empty, clear existing tags and add new ones
+    if !new_tags.is_empty() {
+        let clear_tags_result = sqlx::query!(
+            "DELETE FROM TagProjectMapping_ WHERE project_id = ?",
+            project_id
         )
         .execute(pool.get_ref())
         .await;
 
-        if let Err(e) = insert_tag_mapping_result {
-            error!("Failed to add tag mapping for project {}: {}", project_id, e);
+        if let Err(e) = clear_tags_result {
+            error!("Failed to clear tags for project {}: {}", project_id, e);
+            return HttpResponse::InternalServerError().json(UpdateProjectResponse {
+                success: false,
+                message: "Failed to clear project tags".to_string(),
+            });
+        }
+
+        // Add new tags to TagProjectMapping_
+        for tag_name in new_tags {
+            let tag_id_result = sqlx::query!(
+                "SELECT tag_id FROM Tags_ WHERE group_id = ? AND tag_name = ?",
+                group_id, tag_name
+            )
+            .fetch_one(pool.get_ref())
+            .await;
+
+            let tag_id = match tag_id_result {
+                Ok(record) => record.tag_id,
+                Err(_) => {
+                    info!("Tag not found: {}", tag_name);
+                    continue;
+                }
+            };
+
+            let insert_tag_mapping_result = sqlx::query!(
+                "INSERT INTO TagProjectMapping_ (project_id, tag_id) VALUES (?, ?)",
+                project_id, tag_id
+            )
+            .execute(pool.get_ref())
+            .await;
+
+            if let Err(e) = insert_tag_mapping_result {
+                error!("Failed to add tag mapping for project {}: {}", project_id, e);
+            }
         }
     }
 
@@ -419,6 +434,7 @@ pub async fn update_project(
         message: "Project updated successfully".to_string(),
     })
 }
+
 
 // Handler to get task details
 pub async fn get_task_detail(
@@ -684,28 +700,6 @@ pub async fn update_task(
     let new_start_time = &request.new_start_time;
     let new_end_time = &request.new_end_time;
 
-    let format = format_description!("[year]-[month]-[day] [hour]:[minute]:[second]");
-
-    let new_start_time = match PrimitiveDateTime::parse(new_start_time, &format) {
-        Ok(time) => time,
-        Err(_) => {
-            return HttpResponse::BadRequest().json(UpdateTaskResponse {
-                success: false,
-                message: "Invalid start time format".to_string(),
-            });
-        }
-    };
-
-    let new_end_time = match PrimitiveDateTime::parse(new_end_time, &format) {
-        Ok(time) => time,
-        Err(_) => {
-            return HttpResponse::BadRequest().json(UpdateTaskResponse {
-                success: false,
-                message: "Invalid end time format".to_string(),
-            });
-        }
-    };
-
     // Get the current user name using session ID in the cookie
     let session_id = match req.cookie("session_id") {
         Some(cookie) => cookie.value().to_string(),
@@ -793,10 +787,10 @@ pub async fn update_task(
         }
     };
 
-    // Get task_id using task_title from Tasks_
-    let task_id_result = sqlx::query!(
+    // Get current task details
+    let task_details_result = sqlx::query!(
         "
-        SELECT t.task_id 
+        SELECT t.task_id, t.title, t.worker_user_id, t.description, t.start_time, t.end_time
         FROM Tasks_ t
         WHERE t.project_id = ? AND t.title = ?
         ",
@@ -805,8 +799,15 @@ pub async fn update_task(
     .fetch_one(pool.get_ref())
     .await;
 
-    let task_id = match task_id_result {
-        Ok(record) => record.task_id,
+    let (task_id, current_task_title, current_worker_user_id, current_description, current_start_time, current_end_time) = match task_details_result {
+        Ok(record) => (
+            record.task_id,
+            record.title,
+            record.worker_user_id.expect("worker id should exist"),
+            record.description,
+            record.start_time,
+            record.end_time,
+        ),
         Err(_) => {
             info!("Task not found: {}", task_title);
             return HttpResponse::BadRequest().json(UpdateTaskResponse {
@@ -816,26 +817,71 @@ pub async fn update_task(
         }
     };
 
-    // Get worker_user_id using new_worker_name from Users_
-    let worker_id_result = sqlx::query!(
-        "
-        SELECT u.user_id 
-        FROM Users_ u
-        WHERE u.user_name = ?
-        ",
-        new_worker_name
-    )
-    .fetch_one(pool.get_ref())
-    .await;
+    // Determine the new task title, worker ID, description, start time, and end time
+    let final_task_title = if new_task_title.is_empty() {
+        &current_task_title
+    } else {
+        new_task_title
+    };
 
-    let new_worker_user_id = match worker_id_result {
-        Ok(record) => record.user_id,
-        Err(_) => {
-            info!("Worker not found: {}", new_worker_name);
-            return HttpResponse::BadRequest().json(UpdateTaskResponse {
-                success: false,
-                message: "Worker not found".to_string(),
-            });
+    let final_worker_user_id = if new_worker_name.is_empty() {
+        current_worker_user_id
+    } else {
+        // Get worker_user_id using new_worker_name from Users_
+        let worker_id_result = sqlx::query!(
+            "
+            SELECT u.user_id 
+            FROM Users_ u
+            WHERE u.user_name = ?
+            ",
+            new_worker_name
+        )
+        .fetch_one(pool.get_ref())
+        .await;
+
+        match worker_id_result {
+            Ok(record) => record.user_id,
+            Err(_) => {
+                info!("Worker not found: {}", new_worker_name);
+                return HttpResponse::BadRequest().json(UpdateTaskResponse {
+                    success: false,
+                    message: "Worker not found".to_string(),
+                });
+            }
+        }
+    };
+
+    let final_description = if new_description.is_empty() {
+        &current_description
+    } else {
+        new_description
+    };
+
+    let final_start_time = if new_start_time.is_empty() {
+        current_start_time
+    } else {
+        match PrimitiveDateTime::parse(new_start_time, format_description!("[year]-[month]-[day] [hour]:[minute]:[second]")) {
+            Ok(time) => time,
+            Err(_) => {
+                return HttpResponse::BadRequest().json(UpdateTaskResponse {
+                    success: false,
+                    message: "Invalid start time format".to_string(),
+                });
+            }
+        }
+    };
+
+    let final_end_time = if new_end_time.is_empty() {
+        current_end_time
+    } else {
+        match PrimitiveDateTime::parse(new_end_time, format_description!("[year]-[month]-[day] [hour]:[minute]:[second]")) {
+            Ok(time) => time,
+            Err(_) => {
+                return HttpResponse::BadRequest().json(UpdateTaskResponse {
+                    success: false,
+                    message: "Invalid end time format".to_string(),
+                });
+            }
         }
     };
 
@@ -846,7 +892,7 @@ pub async fn update_task(
         SET title = ?, worker_user_id = ?, description = ?, start_time = ?, end_time = ?
         WHERE task_id = ?
         ",
-        new_task_title, new_worker_user_id, new_description, new_start_time, new_end_time, task_id
+        final_task_title, final_worker_user_id, final_description, final_start_time, final_end_time, task_id
     )
     .execute(pool.get_ref())
     .await;

@@ -212,7 +212,7 @@ pub async fn update_group(
 
     // Verify that the user is the owner of the group
     let verify_owner_result = sqlx::query!(
-        "SELECT g.group_id FROM Groups_ g
+        "SELECT g.group_id, g.group_name FROM Groups_ g
          JOIN GroupUserMapping_ gum ON g.group_id = gum.group_id
          WHERE g.group_name = ? AND g.owner_user_id = ?",
         group_info.group_name, user_id
@@ -220,14 +220,22 @@ pub async fn update_group(
     .fetch_one(pool.get_ref())
     .await;
 
-    let group_id = match verify_owner_result {
-        Ok(record) => record.group_id,
+    let (group_id, _current_group_name) = match verify_owner_result {
+        Ok(record) => (record.group_id, record.group_name),
         Err(_) => {
             info!("User is not the owner of the group {} or group does not exist", group_info.group_name);
             response.message = "User is not the owner of the group or group does not exist".to_string();
             return HttpResponse::BadRequest().json(response);
         }
     };
+
+    // Check if new_group_name is empty
+    if group_info.new_group_name.is_empty() {
+        info!("New group name is empty, maintaining the current group name for group_id: {}", group_id);
+        response.success = true;
+        response.message = "Group name maintained successfully".to_string();
+        return HttpResponse::Ok().json(response);
+    }
 
     // Update the group name
     let update_result = sqlx::query!(
