@@ -6,9 +6,11 @@ use super::project_view_models::{
     GetProjectDetailRequest, GetProjectDetailResponse,
     AddProjectRequest, AddProjectResponse,
     UpdateProjectRequest, UpdateProjectResponse,
+    DeleteProjectRequest, DeleteProjectResponse,
     GetTaskDetailRequest, GetTaskDetailResponse, Task,
     AddTaskRequest, AddTaskResponse,
     UpdateTaskRequest, UpdateTaskResponse,
+    DeleteTaskRequest, DeleteTaskResponse,
 };
 
 // Default handler for project selection root
@@ -432,6 +434,189 @@ pub async fn update_project(
     HttpResponse::Ok().json(UpdateProjectResponse {
         success: true,
         message: "Project updated successfully".to_string(),
+    })
+}
+
+pub async fn delete_project(
+    pool: web::Data<MySqlPool>,
+    req: HttpRequest,
+    request: web::Json<DeleteProjectRequest>,
+) -> impl Responder {
+    let owner_user_name = &request.owner_user_name;
+    let group_name = &request.group_name;
+    let project_name = &request.project_name;
+
+    // Get the current user name using session ID in the cookie
+    let session_id = match req.cookie("session_id") {
+        Some(cookie) => cookie.value().to_string(),
+        None => {
+            info!("Session ID not found in cookies for delete_project");
+            return HttpResponse::BadRequest().json(DeleteProjectResponse {
+                success: false,
+                message: "Session ID not found".to_string(),
+            });
+        }
+    };
+
+    let session_result = sqlx::query!(
+        "SELECT u.user_name FROM Sessions_ s
+         JOIN Users_ u ON s.user_id = u.user_id
+         WHERE s.session_id = ? AND s.expires_at > NOW()",
+        session_id
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let current_user_name = match session_result {
+        Ok(session) => session.user_name,
+        Err(_) => {
+            info!("Invalid or expired session ID: {}", session_id);
+            return HttpResponse::BadRequest().json(DeleteProjectResponse {
+                success: false,
+                message: "Invalid or expired session ID".to_string(),
+            });
+        }
+    };
+
+    // Assert owner_user_name == current user name
+    if owner_user_name != &current_user_name {
+        return HttpResponse::BadRequest().json(DeleteProjectResponse {
+            success: false,
+            message: "Unauthorized action".to_string(),
+        });
+    }
+
+    // Get group_id using group_name from Groups_
+    let group_id_result = sqlx::query!(
+        "
+        SELECT g.group_id 
+        FROM Groups_ g
+        JOIN Users_ u ON g.owner_user_id = u.user_id
+        WHERE g.group_name = ? AND u.user_name = ?
+        ",
+        group_name, owner_user_name
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let group_id = match group_id_result {
+        Ok(record) => record.group_id,
+        Err(_) => {
+            info!("Group not found: {}", group_name);
+            return HttpResponse::BadRequest().json(DeleteProjectResponse {
+                success: false,
+                message: "Group not found".to_string(),
+            });
+        }
+    };
+
+    // Get project_id using project_name from Projects_
+    let project_id_result = sqlx::query!(
+        "
+        SELECT p.project_id 
+        FROM Projects_ p
+        WHERE p.group_id = ? AND p.project_name = ?
+        ",
+        group_id, project_name
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let project_id = match project_id_result {
+        Ok(record) => record.project_id,
+        Err(_) => {
+            info!("Project not found: {}", project_name);
+            return HttpResponse::BadRequest().json(DeleteProjectResponse {
+                success: false,
+                message: "Project not found".to_string(),
+            });
+        }
+    };
+
+    // Begin a transaction
+    let mut tx = match pool.begin().await {
+        Ok(transaction) => transaction,
+        Err(e) => {
+            error!("Failed to start transaction: {}", e);
+            return HttpResponse::InternalServerError().json(DeleteProjectResponse {
+                success: false,
+                message: "Failed to start transaction".to_string(),
+            });
+        }
+    };
+
+    // Delete tasks associated with the project
+    let delete_tasks_result = sqlx::query!(
+        "
+        DELETE FROM Tasks_ 
+        WHERE project_id = ?
+        ",
+        project_id
+    )
+    .execute(&mut *tx)
+    .await;
+
+    if let Err(e) = delete_tasks_result {
+        error!("Failed to delete tasks for project {}: {}", project_id, e);
+        let _ = tx.rollback().await;
+        return HttpResponse::InternalServerError().json(DeleteProjectResponse {
+            success: false,
+            message: "Failed to delete tasks".to_string(),
+        });
+    }
+
+    // Delete tag mappings associated with the project
+    let delete_tag_mappings_result = sqlx::query!(
+        "
+        DELETE FROM TagProjectMapping_ 
+        WHERE project_id = ?
+        ",
+        project_id
+    )
+    .execute(&mut *tx)
+    .await;
+
+    if let Err(e) = delete_tag_mappings_result {
+        error!("Failed to delete tag mappings for project {}: {}", project_id, e);
+        let _ = tx.rollback().await;
+        return HttpResponse::InternalServerError().json(DeleteProjectResponse {
+            success: false,
+            message: "Failed to delete tag mappings".to_string(),
+        });
+    }
+
+    // Delete the project
+    let delete_project_result = sqlx::query!(
+        "
+        DELETE FROM Projects_ 
+        WHERE project_id = ?
+        ",
+        project_id
+    )
+    .execute(&mut *tx)
+    .await;
+
+    if let Err(e) = delete_project_result {
+        error!("Failed to delete project {}: {}", project_id, e);
+        let _ = tx.rollback().await;
+        return HttpResponse::InternalServerError().json(DeleteProjectResponse {
+            success: false,
+            message: "Failed to delete project".to_string(),
+        });
+    }
+
+    // Commit the transaction
+    if let Err(e) = tx.commit().await {
+        error!("Failed to commit transaction: {}", e);
+        return HttpResponse::InternalServerError().json(DeleteProjectResponse {
+            success: false,
+            message: "Failed to commit transaction".to_string(),
+        });
+    }
+
+    HttpResponse::Ok().json(DeleteProjectResponse {
+        success: true,
+        message: "Project deleted successfully".to_string(),
     })
 }
 
@@ -908,5 +1093,172 @@ pub async fn update_task(
     HttpResponse::Ok().json(UpdateTaskResponse {
         success: true,
         message: "Task updated successfully".to_string(),
+    })
+}
+
+pub async fn delete_task(
+    pool: web::Data<MySqlPool>,
+    req: HttpRequest,
+    request: web::Json<DeleteTaskRequest>,
+) -> impl Responder {
+    let owner_user_name = &request.owner_user_name;
+    let group_name = &request.group_name;
+    let project_name = &request.project_name;
+    let task_title = &request.task_title;
+
+    // Get the current user name using session ID in the cookie
+    let session_id = match req.cookie("session_id") {
+        Some(cookie) => cookie.value().to_string(),
+        None => {
+            info!("Session ID not found in cookies for delete_task");
+            return HttpResponse::BadRequest().json(DeleteTaskResponse {
+                success: false,
+                message: "Session ID not found".to_string(),
+            });
+        }
+    };
+
+    let session_result = sqlx::query!(
+        "SELECT u.user_name FROM Sessions_ s
+         JOIN Users_ u ON s.user_id = u.user_id
+         WHERE s.session_id = ? AND s.expires_at > NOW()",
+        session_id
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let current_user_name = match session_result {
+        Ok(session) => session.user_name,
+        Err(_) => {
+            info!("Invalid or expired session ID: {}", session_id);
+            return HttpResponse::BadRequest().json(DeleteTaskResponse {
+                success: false,
+                message: "Invalid or expired session ID".to_string(),
+            });
+        }
+    };
+
+    // Assert owner_user_name == current user name
+    if owner_user_name != &current_user_name {
+        return HttpResponse::BadRequest().json(DeleteTaskResponse {
+            success: false,
+            message: "Unauthorized action".to_string(),
+        });
+    }
+
+    // Get group_id using group_name from Groups_
+    let group_id_result = sqlx::query!(
+        "
+        SELECT g.group_id 
+        FROM Groups_ g
+        JOIN Users_ u ON g.owner_user_id = u.user_id
+        WHERE g.group_name = ? AND u.user_name = ?
+        ",
+        group_name, owner_user_name
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let group_id = match group_id_result {
+        Ok(record) => record.group_id,
+        Err(_) => {
+            info!("Group not found: {}", group_name);
+            return HttpResponse::BadRequest().json(DeleteTaskResponse {
+                success: false,
+                message: "Group not found".to_string(),
+            });
+        }
+    };
+
+    // Get project_id using project_name from Projects_
+    let project_id_result = sqlx::query!(
+        "
+        SELECT p.project_id 
+        FROM Projects_ p
+        WHERE p.group_id = ? AND p.project_name = ?
+        ",
+        group_id, project_name
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let project_id = match project_id_result {
+        Ok(record) => record.project_id,
+        Err(_) => {
+            info!("Project not found: {}", project_name);
+            return HttpResponse::BadRequest().json(DeleteTaskResponse {
+                success: false,
+                message: "Project not found".to_string(),
+            });
+        }
+    };
+
+    // Get task_id using task_title from Tasks_
+    let task_id_result = sqlx::query!(
+        "
+        SELECT t.task_id 
+        FROM Tasks_ t
+        WHERE t.project_id = ? AND t.title = ?
+        ",
+        project_id, task_title
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let task_id = match task_id_result {
+        Ok(record) => record.task_id,
+        Err(_) => {
+            info!("Task not found: {}", task_title);
+            return HttpResponse::BadRequest().json(DeleteTaskResponse {
+                success: false,
+                message: "Task not found".to_string(),
+            });
+        }
+    };
+
+    // Begin a transaction
+    let mut tx = match pool.begin().await {
+        Ok(transaction) => transaction,
+        Err(e) => {
+            error!("Failed to start transaction: {}", e);
+            return HttpResponse::InternalServerError().json(DeleteTaskResponse {
+                success: false,
+                message: "Failed to start transaction".to_string(),
+            });
+        }
+    };
+
+    // Delete the task
+    let delete_task_result = sqlx::query!(
+        "
+        DELETE FROM Tasks_ 
+        WHERE task_id = ?
+        ",
+        task_id
+    )
+    .execute(&mut *tx)
+    .await;
+
+    if let Err(e) = delete_task_result {
+        error!("Failed to delete task {}: {}", task_id, e);
+        let _ = tx.rollback().await;
+        return HttpResponse::InternalServerError().json(DeleteTaskResponse {
+            success: false,
+            message: "Failed to delete task".to_string(),
+        });
+    }
+
+    // Commit the transaction
+    if let Err(e) = tx.commit().await {
+        error!("Failed to commit transaction: {}", e);
+        return HttpResponse::InternalServerError().json(DeleteTaskResponse {
+            success: false,
+            message: "Failed to commit transaction".to_string(),
+        });
+    }
+
+    HttpResponse::Ok().json(DeleteTaskResponse {
+        success: true,
+        message: "Task deleted successfully".to_string(),
     })
 }

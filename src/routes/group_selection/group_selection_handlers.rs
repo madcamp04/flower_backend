@@ -5,6 +5,7 @@ use super::group_selection_models::{
     GetGroupListRequest, GetGroupListResponse, Group,
     AddGroupRequest, AddGroupResponse,
     UpdateGroupRequest, UpdateGroupResponse,
+    DeleteGroupRequest, DeleteGroupResponse,
 };
 
 // Default handler for group selection root
@@ -254,5 +255,174 @@ pub async fn update_group(
     info!("Group name updated successfully for group_id: {}", group_id);
     response.success = true;
     response.message = "Group name updated successfully".to_string();
+    HttpResponse::Ok().json(response)
+}
+
+pub async fn delete_group(
+    pool: web::Data<MySqlPool>,
+    req: HttpRequest,
+    group_info: web::Json<DeleteGroupRequest>,
+) -> impl Responder {
+    let mut response = DeleteGroupResponse {
+        success: false,
+        message: String::new(),
+    };
+
+    // Extract session ID from the cookie
+    let session_id = match req.cookie("session_id") {
+        Some(cookie) => cookie.value().to_string(),
+        None => {
+            info!("Session ID not found in cookies for delete_group");
+            response.message = "Session ID not found".to_string();
+            return HttpResponse::BadRequest().json(response);
+        }
+    };
+    info!("Received request to delete group with session ID: {}", session_id);
+
+    // Verify session ID and get user information
+    let session_result = sqlx::query!(
+        "SELECT user_id FROM Sessions_ WHERE session_id = ? AND expires_at > NOW()",
+        session_id
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let user_id = match session_result {
+        Ok(session) => session.user_id,
+        Err(_) => {
+            info!("Invalid or expired session ID: {}", session_id);
+            response.message = "Invalid or expired session ID".to_string();
+            return HttpResponse::BadRequest().json(response);
+        }
+    };
+
+    // Verify that the user is the owner of the group
+    let verify_owner_result = sqlx::query!(
+        "SELECT group_id FROM Groups_ WHERE group_name = ? AND owner_user_id = ?",
+        group_info.group_name, user_id
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let group_id = match verify_owner_result {
+        Ok(record) => record.group_id,
+        Err(_) => {
+            info!("User is not the owner of the group {} or group does not exist", group_info.group_name);
+            response.message = "User is not the owner of the group or group does not exist".to_string();
+            return HttpResponse::BadRequest().json(response);
+        }
+    };
+
+    // Start a transaction
+    let mut tx = match pool.begin().await {
+        Ok(transaction) => transaction,
+        Err(e) => {
+            error!("Failed to start a transaction: {}", e);
+            response.message = "Failed to start a transaction".to_string();
+            return HttpResponse::InternalServerError().json(response);
+        }
+    };
+
+    // Delete tasks associated with projects in the group
+    let delete_tasks_result = sqlx::query!(
+        "DELETE t FROM Tasks_ t
+         JOIN Projects_ p ON t.project_id = p.project_id
+         WHERE p.group_id = ?",
+        group_id
+    )
+    .execute(&mut *tx)
+    .await;
+
+    if let Err(e) = delete_tasks_result {
+        error!("Failed to delete tasks for group {}: {}", group_id, e);
+        response.message = "Failed to delete tasks".to_string();
+        tx.rollback().await.unwrap();
+        return HttpResponse::InternalServerError().json(response);
+    }
+
+    let delete_tag_project_mappings_result = sqlx::query!(
+        "DELETE FROM TagProjectMapping_ WHERE project_id IN (SELECT project_id FROM Projects_ WHERE group_id = ?)",
+        group_id
+    )
+    .execute(&mut *tx)
+    .await;
+
+    if let Err(e) = delete_tag_project_mappings_result {
+        error!("Failed to delete tag-project mappings for group {}: {}", group_id, e);
+        response.message = "Failed to delete tag-project mappings".to_string();
+        tx.rollback().await.unwrap();
+        return HttpResponse::InternalServerError().json(response);
+    }
+    
+    // Delete projects associated with the group and related mappings
+    let delete_projects_result = sqlx::query!(
+        "DELETE FROM Projects_ WHERE group_id = ?",
+        group_id
+    )
+    .execute(&mut *tx)
+    .await;
+
+    if let Err(e) = delete_projects_result {
+        error!("Failed to delete projects for group {}: {}", group_id, e);
+        response.message = "Failed to delete projects".to_string();
+        tx.rollback().await.unwrap();
+        return HttpResponse::InternalServerError().json(response);
+    }
+
+    // Delete tags associated with the group
+    let delete_tags_result = sqlx::query!(
+        "DELETE FROM Tags_ WHERE group_id = ?",
+        group_id
+    )
+    .execute(&mut *tx)
+    .await;
+
+    if let Err(e) = delete_tags_result {
+        error!("Failed to delete tags for group {}: {}", group_id, e);
+        response.message = "Failed to delete tags".to_string();
+        tx.rollback().await.unwrap();
+        return HttpResponse::InternalServerError().json(response);
+    }
+
+    // Delete all mappings from GroupUserMapping_ with group_id
+    let delete_group_user_mapping_result = sqlx::query!(
+        "DELETE FROM GroupUserMapping_ WHERE group_id = ?",
+        group_id
+    )
+    .execute(&mut *tx)
+    .await;
+
+    if let Err(e) = delete_group_user_mapping_result {
+        error!("Failed to delete group-user mappings for group {}: {}", group_id, e);
+        response.message = "Failed to delete group-user mappings".to_string();
+        tx.rollback().await.unwrap();
+        return HttpResponse::InternalServerError().json(response);
+    }
+
+    // Finally, delete the group
+    let delete_group_result = sqlx::query!(
+        "DELETE FROM Groups_ WHERE group_id = ?",
+        group_id
+    )
+    .execute(&mut *tx)
+    .await;
+
+    if let Err(e) = delete_group_result {
+        error!("Failed to delete group {}: {}", group_id, e);
+        response.message = "Failed to delete group".to_string();
+        tx.rollback().await.unwrap();
+        return HttpResponse::InternalServerError().json(response);
+    }
+
+    // Commit the transaction
+    if let Err(e) = tx.commit().await {
+        error!("Failed to commit transaction for deleting group {}: {}", group_id, e);
+        response.message = "Failed to commit transaction".to_string();
+        return HttpResponse::InternalServerError().json(response);
+    }
+
+    info!("Group {} deleted successfully", group_info.group_name);
+    response.success = true;
+    response.message = "Group deleted successfully".to_string();
     HttpResponse::Ok().json(response)
 }
