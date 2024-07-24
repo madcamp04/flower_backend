@@ -29,3 +29,16 @@ pub struct AddGroupResponse {
     pub success: bool,
     pub message: String,
 }
+
+#[derive(Deserialize)]
+pub struct UpdateGroupRequest {
+    // if needed
+    pub group_name: String,
+    pub new_group_name: String,
+}
+// list of groups
+#[derive(Serialize)]
+pub struct UpdateGroupResponse {
+    pub success: bool,
+    pub message: String,
+}
