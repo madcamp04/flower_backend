@@ -32,7 +32,7 @@ pub struct AddGroupResponse {
 
 #[derive(Deserialize)]
 pub struct UpdateGroupRequest {
-    // if needed
+    pub owner_user_name: String,
     pub group_name: String,
     pub new_group_name: String,
 }
@@ -45,7 +45,7 @@ pub struct UpdateGroupResponse {
 
 #[derive(Deserialize)]
 pub struct DeleteGroupRequest {
-    // if needed
+    pub owner_user_name: String,
     pub group_name: String,
 }
 // list of groups
