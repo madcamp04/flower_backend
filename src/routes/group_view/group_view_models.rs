@@ -84,6 +84,22 @@ pub struct AddTagResponse {
 }
 
 #[derive(Deserialize)]
+pub struct UpdateTagRequest {
+    pub owner_user_name: String,
+    pub group_name: String,
+    pub tag_name: String,
+    pub new_tag_name: String,
+    pub new_tag_color: String,
+}
+
+
+#[derive(Serialize)]
+pub struct UpdateTagResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+#[derive(Deserialize)]
 pub struct GetTaskListByTagListRequest {
     pub owner_user_name: String,
     pub group_name: String,
