@@ -220,7 +220,7 @@ pub async fn update_group(
     .fetch_one(pool.get_ref())
     .await;
 
-    let (group_id, current_group_name) = match verify_owner_result {
+    let (group_id, _current_group_name) = match verify_owner_result {
         Ok(record) => (record.group_id, record.group_name),
         Err(_) => {
             info!("User is not the owner of the group {} or group does not exist", group_info.group_name);

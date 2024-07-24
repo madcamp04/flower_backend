@@ -474,7 +474,6 @@ pub async fn update_tag(
     }
 }
 
-
 // Handler to get task list by tag list
 pub async fn get_task_list_by_tag_list(
     pool: web::Data<MySqlPool>,
