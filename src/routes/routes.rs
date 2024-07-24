@@ -34,7 +34,7 @@ pub fn group_selection_configure(cfg: &mut web::ServiceConfig) {
             .route("/", web::get().to(group_selection_handlers::group_selection_get))  // Add this line
             .route("/group-list", web::post().to(group_selection_handlers::get_group_list))
             .route("/add-group", web::post().to(group_selection_handlers::add_group))
-            .route("/update-group", web::post().to(group_selection_handlers::update_group))
+            .route("/update-group", web::patch().to(group_selection_handlers::update_group))
     );
 }
 
@@ -49,7 +49,7 @@ pub fn group_view_configure(cfg: &mut web::ServiceConfig) {
             .route("/add-worker", web::post().to(group_view_handlers::add_worker))
             .route("/tag-list", web::post().to(group_view_handlers::get_tag_list))
             .route("/add-tag", web::post().to(group_view_handlers::add_tag))
-            .route("/update-tag", web::post().to(group_view_handlers::update_tag))
+            .route("/update-tag", web::patch().to(group_view_handlers::update_tag))
             .route("/task-list/by-tag-list", web::post().to(group_view_handlers::get_task_list_by_tag_list))
             .route("/task-list/by-project-name", web::post().to(group_view_handlers::get_task_list_by_project_name))
             .route("/project-list", web::post().to(group_view_handlers::get_project_list))
@@ -65,9 +65,9 @@ pub fn project_view_configure(cfg: &mut web::ServiceConfig) {
             .route("/", web::get().to(project_view_handlers::project_view_get))  // Add this line
             .route("/project-detail", web::post().to(project_view_handlers::get_project_detail))
             .route("/add-project", web::post().to(project_view_handlers::add_project))
-            .route("/update-project", web::post().to(project_view_handlers::update_project))
+            .route("/update-project", web::patch().to(project_view_handlers::update_project))
             .route("/task-detail", web::post().to(project_view_handlers::get_task_detail))
             .route("/add-task", web::post().to(project_view_handlers::add_task))
-            // .route("/update-task", web::post().to(project_view_handlers::update_task))
+            .route("/update-task", web::patch().to(project_view_handlers::update_task))
     );
 }

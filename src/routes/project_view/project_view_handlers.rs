@@ -8,6 +8,7 @@ use super::project_view_models::{
     UpdateProjectRequest, UpdateProjectResponse,
     GetTaskDetailRequest, GetTaskDetailResponse, Task,
     AddTaskRequest, AddTaskResponse,
+    UpdateTaskRequest, UpdateTaskResponse,
 };
 
 // Default handler for project selection root
@@ -665,5 +666,201 @@ pub async fn add_task(
     HttpResponse::Ok().json(AddTaskResponse {
         success: true,
         message: "Task added successfully".to_string(),
+    })
+}
+
+pub async fn update_task(
+    pool: web::Data<MySqlPool>,
+    req: HttpRequest,
+    request: web::Json<UpdateTaskRequest>,
+) -> impl Responder {
+    let owner_user_name = &request.owner_user_name;
+    let group_name = &request.group_name;
+    let project_name = &request.project_name;
+    let task_title = &request.task_title;
+    let new_task_title = &request.new_task_title;
+    let new_worker_name = &request.new_worker_name;
+    let new_description = &request.new_description;
+    let new_start_time = &request.new_start_time;
+    let new_end_time = &request.new_end_time;
+
+    let format = format_description!("[year]-[month]-[day] [hour]:[minute]:[second]");
+
+    let new_start_time = match PrimitiveDateTime::parse(new_start_time, &format) {
+        Ok(time) => time,
+        Err(_) => {
+            return HttpResponse::BadRequest().json(UpdateTaskResponse {
+                success: false,
+                message: "Invalid start time format".to_string(),
+            });
+        }
+    };
+
+    let new_end_time = match PrimitiveDateTime::parse(new_end_time, &format) {
+        Ok(time) => time,
+        Err(_) => {
+            return HttpResponse::BadRequest().json(UpdateTaskResponse {
+                success: false,
+                message: "Invalid end time format".to_string(),
+            });
+        }
+    };
+
+    // Get the current user name using session ID in the cookie
+    let session_id = match req.cookie("session_id") {
+        Some(cookie) => cookie.value().to_string(),
+        None => {
+            info!("Session ID not found in cookies for update_task");
+            return HttpResponse::BadRequest().json(UpdateTaskResponse {
+                success: false,
+                message: "Session ID not found".to_string(),
+            });
+        }
+    };
+
+    let session_result = sqlx::query!(
+        "SELECT u.user_name FROM Sessions_ s
+         JOIN Users_ u ON s.user_id = u.user_id
+         WHERE s.session_id = ? AND s.expires_at > NOW()",
+        session_id
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let current_user_name = match session_result {
+        Ok(session) => session.user_name,
+        Err(_) => {
+            info!("Invalid or expired session ID: {}", session_id);
+            return HttpResponse::BadRequest().json(UpdateTaskResponse {
+                success: false,
+                message: "Invalid or expired session ID".to_string(),
+            });
+        }
+    };
+
+    // Assert owner_user_name == current user name
+    if owner_user_name != &current_user_name {
+        return HttpResponse::BadRequest().json(UpdateTaskResponse {
+            success: false,
+            message: "Unauthorized action".to_string(),
+        });
+    }
+
+    // Get group_id using group_name from Groups_
+    let group_id_result = sqlx::query!(
+        "
+        SELECT g.group_id 
+        FROM Groups_ g
+        JOIN Users_ u ON g.owner_user_id = u.user_id
+        WHERE g.group_name = ? AND u.user_name = ?
+        ",
+        group_name, owner_user_name
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let group_id = match group_id_result {
+        Ok(record) => record.group_id,
+        Err(_) => {
+            info!("Group not found: {}", group_name);
+            return HttpResponse::BadRequest().json(UpdateTaskResponse {
+                success: false,
+                message: "Group not found".to_string(),
+            });
+        }
+    };
+
+    // Get project_id using project_name from Projects_
+    let project_id_result = sqlx::query!(
+        "
+        SELECT p.project_id 
+        FROM Projects_ p
+        WHERE p.group_id = ? AND p.project_name = ?
+        ",
+        group_id, project_name
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let project_id = match project_id_result {
+        Ok(record) => record.project_id,
+        Err(_) => {
+            info!("Project not found: {}", project_name);
+            return HttpResponse::BadRequest().json(UpdateTaskResponse {
+                success: false,
+                message: "Project not found".to_string(),
+            });
+        }
+    };
+
+    // Get task_id using task_title from Tasks_
+    let task_id_result = sqlx::query!(
+        "
+        SELECT t.task_id 
+        FROM Tasks_ t
+        WHERE t.project_id = ? AND t.title = ?
+        ",
+        project_id, task_title
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let task_id = match task_id_result {
+        Ok(record) => record.task_id,
+        Err(_) => {
+            info!("Task not found: {}", task_title);
+            return HttpResponse::BadRequest().json(UpdateTaskResponse {
+                success: false,
+                message: "Task not found".to_string(),
+            });
+        }
+    };
+
+    // Get worker_user_id using new_worker_name from Users_
+    let worker_id_result = sqlx::query!(
+        "
+        SELECT u.user_id 
+        FROM Users_ u
+        WHERE u.user_name = ?
+        ",
+        new_worker_name
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let new_worker_user_id = match worker_id_result {
+        Ok(record) => record.user_id,
+        Err(_) => {
+            info!("Worker not found: {}", new_worker_name);
+            return HttpResponse::BadRequest().json(UpdateTaskResponse {
+                success: false,
+                message: "Worker not found".to_string(),
+            });
+        }
+    };
+
+    // Update task details in Tasks_
+    let update_result = sqlx::query!(
+        "
+        UPDATE Tasks_
+        SET title = ?, worker_user_id = ?, description = ?, start_time = ?, end_time = ?
+        WHERE task_id = ?
+        ",
+        new_task_title, new_worker_user_id, new_description, new_start_time, new_end_time, task_id
+    )
+    .execute(pool.get_ref())
+    .await;
+
+    if let Err(e) = update_result {
+        error!("Failed to update task {}: {}", task_id, e);
+        return HttpResponse::InternalServerError().json(UpdateTaskResponse {
+            success: false,
+            message: "Failed to update task".to_string(),
+        });
+    }
+
+    HttpResponse::Ok().json(UpdateTaskResponse {
+        success: true,
+        message: "Task updated successfully".to_string(),
     })
 }
