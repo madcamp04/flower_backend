@@ -4,6 +4,7 @@ use log::{error, info};
 use super::group_selection_models::{
     GetGroupListRequest, GetGroupListResponse, Group,
     AddGroupRequest, AddGroupResponse,
+    UpdateGroupRequest, UpdateGroupResponse,
 };
 
 // Default handler for group selection root
@@ -167,5 +168,83 @@ pub async fn add_group(
     info!("Group {} created successfully with ID: {}", group_name, group_id);
     response.success = true;
     response.message = "Group created successfully".to_string();
+    HttpResponse::Ok().json(response)
+}
+
+pub async fn update_group(
+    pool: web::Data<MySqlPool>,
+    req: HttpRequest,
+    group_info: web::Json<UpdateGroupRequest>,
+) -> impl Responder {
+    // Initialize an empty response
+    let mut response = UpdateGroupResponse {
+        success: false,
+        message: String::new(),
+    };
+
+    // Extract session ID from the cookie
+    let session_id = match req.cookie("session_id") {
+        Some(cookie) => cookie.value().to_string(),
+        None => {
+            info!("Session ID not found in cookies for update_group");
+            response.message = "Session ID not found".to_string();
+            return HttpResponse::BadRequest().json(response);
+        }
+    };
+    info!("Received request to update group with session ID: {}", session_id);
+
+    // Verify session ID and get user information
+    let session_result = sqlx::query!(
+        "SELECT user_id FROM Sessions_ WHERE session_id = ? AND expires_at > NOW()",
+        session_id
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let user_id = match session_result {
+        Ok(session) => session.user_id,
+        Err(_) => {
+            info!("Invalid or expired session ID: {}", session_id);
+            response.message = "Invalid or expired session ID".to_string();
+            return HttpResponse::BadRequest().json(response);
+        }
+    };
+
+    // Verify that the user is the owner of the group
+    let verify_owner_result = sqlx::query!(
+        "SELECT g.group_id FROM Groups_ g
+         JOIN GroupUserMapping_ gum ON g.group_id = gum.group_id
+         WHERE g.group_name = ? AND g.owner_user_id = ?",
+        group_info.group_name, user_id
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let group_id = match verify_owner_result {
+        Ok(record) => record.group_id,
+        Err(_) => {
+            info!("User is not the owner of the group {} or group does not exist", group_info.group_name);
+            response.message = "User is not the owner of the group or group does not exist".to_string();
+            return HttpResponse::BadRequest().json(response);
+        }
+    };
+
+    // Update the group name
+    let update_result = sqlx::query!(
+        "UPDATE Groups_ SET group_name = ? WHERE group_id = ?",
+        group_info.new_group_name, group_id
+    )
+    .execute(pool.get_ref())
+    .await;
+
+    if let Err(e) = update_result {
+        error!("Failed to update group name for group_id {}: {}", group_id, e);
+        response.message = "Failed to update group name".to_string();
+        return HttpResponse::InternalServerError().json(response);
+    }
+
+    info!("Group name updated successfully for group_id: {}", group_id);
+    response.success = true;
+    response.message = "Group name updated successfully".to_string();
     HttpResponse::Ok().json(response)
 }
