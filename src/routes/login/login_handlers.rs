@@ -26,6 +26,12 @@ pub async fn check_username(
 ) -> impl Responder {
     let username = &req.username;
     info!("Received request to check username: {}", username);
+
+    if username.trim().is_empty() {
+        info!("Username cannot be empty");
+        return HttpResponse::BadRequest().json(CheckUsernameResponse { is_unique: false });
+    }
+
     let result = sqlx::query!(
         "SELECT COUNT(*) as count FROM Users_ WHERE user_name = ?",
         username
@@ -53,6 +59,12 @@ pub async fn check_email(
 ) -> impl Responder {
     let email = &req.email;
     info!("Received request to check email: {}", email);
+
+    if email.trim().is_empty() {
+        info!("Email cannot be empty");
+        return HttpResponse::BadRequest().json(CheckEmailResponse { is_unique: false });
+    }
+    
     let result = sqlx::query!(
         "SELECT COUNT(*) as count FROM Users_ WHERE user_email = ?",
         email
