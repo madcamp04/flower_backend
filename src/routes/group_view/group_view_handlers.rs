@@ -421,14 +421,14 @@ pub async fn update_tag(
 
     // Check if tag_name exists in Tags_ table under the group
     let tag_result = sqlx::query!(
-        "SELECT tag_id FROM Tags_ WHERE group_id = ? AND tag_name = ?",
+        "SELECT tag_id, tag_name, tag_color FROM Tags_ WHERE group_id = ? AND tag_name = ?",
         group_id, tag_name
     )
     .fetch_one(pool.get_ref())
     .await;
 
-    let tag_id = match tag_result {
-        Ok(record) => record.tag_id,
+    let (tag_id, current_tag_name, current_tag_color) = match tag_result {
+        Ok(record) => (record.tag_id, record.tag_name, record.tag_color),
         Err(_) => {
             info!("Tag not found: {}", tag_name);
             return HttpResponse::BadRequest().json(UpdateTagResponse {
@@ -438,10 +438,23 @@ pub async fn update_tag(
         }
     };
 
+    // Determine the new tag name and color, maintaining current values if new ones are empty
+    let final_tag_name = if new_tag_name.is_empty() {
+        &current_tag_name
+    } else {
+        new_tag_name
+    };
+
+    let final_tag_color = if new_tag_color.is_empty() {
+        &current_tag_color
+    } else {
+        new_tag_color
+    };
+
     // Update the tag in the Tags_ table
     let update_result = sqlx::query!(
         "UPDATE Tags_ SET tag_name = ?, tag_color = ? WHERE tag_id = ?",
-        new_tag_name, new_tag_color, tag_id
+        final_tag_name, final_tag_color, tag_id
     )
     .execute(pool.get_ref())
     .await;
@@ -460,6 +473,7 @@ pub async fn update_tag(
         }
     }
 }
+
 
 // Handler to get task list by tag list
 pub async fn get_task_list_by_tag_list(
