@@ -736,6 +736,14 @@ pub async fn add_task(
         PrimitiveDateTime::parse(&request.end_time, &format)
         .expect("Failed to parse end time");
 
+    // Check if start time is before end time
+    if start_time >= end_time {
+        return HttpResponse::BadRequest().json(AddTaskResponse {
+            success: false,
+            message: "Start time must be before end time".to_string(),
+        });
+    }
+
     // Get the current user name using session ID in the cookie
     let session_id = match req.cookie("session_id") {
         Some(cookie) => cookie.value().to_string(),
@@ -1070,6 +1078,14 @@ pub async fn update_task(
         }
     };
 
+    // Check if the new start time is before the new end time
+    if final_start_time >= final_end_time {
+        return HttpResponse::BadRequest().json(UpdateTaskResponse {
+            success: false,
+            message: "Start time must be before end time".to_string(),
+        });
+    }
+    
     // Update task details in Tasks_
     let update_result = sqlx::query!(
         "
