@@ -175,151 +175,191 @@ pub async fn add_group(
 pub async fn update_group(
     pool: web::Data<MySqlPool>,
     req: HttpRequest,
-    group_info: web::Json<UpdateGroupRequest>,
+    request: web::Json<UpdateGroupRequest>,
 ) -> impl Responder {
-    // Initialize an empty response
-    let mut response = UpdateGroupResponse {
-        success: false,
-        message: String::new(),
-    };
+    let owner_user_name = &request.owner_user_name;
+    let group_name = &request.group_name;
+    let new_group_name = &request.new_group_name;
 
-    // Extract session ID from the cookie
+    // Get the current user name using session ID in the cookie
     let session_id = match req.cookie("session_id") {
         Some(cookie) => cookie.value().to_string(),
         None => {
-            info!("Session ID not found in cookies for update_group");
-            response.message = "Session ID not found".to_string();
-            return HttpResponse::BadRequest().json(response);
+            info!("Session ID not found in cookies for delete_tag");
+            return HttpResponse::BadRequest().json(UpdateGroupResponse {
+                success: false,
+                message: "Session ID not found".to_string(),
+            });
         }
     };
-    info!("Received request to update group with session ID: {}", session_id);
 
-    // Verify session ID and get user information
     let session_result = sqlx::query!(
-        "SELECT user_id FROM Sessions_ WHERE session_id = ? AND expires_at > NOW()",
+        "SELECT u.user_name FROM Sessions_ s
+         JOIN Users_ u ON s.user_id = u.user_id
+         WHERE s.session_id = ? AND s.expires_at > NOW()",
         session_id
     )
     .fetch_one(pool.get_ref())
     .await;
 
-    let user_id = match session_result {
-        Ok(session) => session.user_id,
+    let current_user_name = match session_result {
+        Ok(session) => session.user_name,
         Err(_) => {
             info!("Invalid or expired session ID: {}", session_id);
-            response.message = "Invalid or expired session ID".to_string();
-            return HttpResponse::BadRequest().json(response);
+            return HttpResponse::BadRequest().json(UpdateGroupResponse {
+                success: false,
+                message: "Invalid or expired session ID".to_string(),
+            });
         }
     };
 
-    // Verify that the user is the owner of the group
-    let verify_owner_result = sqlx::query!(
-        "SELECT g.group_id, g.group_name FROM Groups_ g
-         JOIN GroupUserMapping_ gum ON g.group_id = gum.group_id
-         WHERE g.group_name = ? AND g.owner_user_id = ?",
-        group_info.group_name, user_id
+    // Assert owner_user_name == current user name
+    if owner_user_name != &current_user_name {
+        return HttpResponse::BadRequest().json(UpdateGroupResponse {
+            success: false,
+            message: "Unauthorized action".to_string(),
+        });
+    }
+
+    // Get the group_id with group_name from Groups_
+    let group_id_result = sqlx::query!(
+        "
+        SELECT g.group_id 
+        FROM Groups_ g
+        JOIN Users_ u ON g.owner_user_id = u.user_id
+        WHERE g.group_name = ? AND u.user_name = ?
+        ",
+        group_name, owner_user_name
     )
     .fetch_one(pool.get_ref())
     .await;
 
-    let (group_id, _current_group_name) = match verify_owner_result {
-        Ok(record) => (record.group_id, record.group_name),
+    let group_id = match group_id_result {
+        Ok(record) => record.group_id,
         Err(_) => {
-            info!("User is not the owner of the group {} or group does not exist", group_info.group_name);
-            response.message = "User is not the owner of the group or group does not exist".to_string();
-            return HttpResponse::BadRequest().json(response);
+            info!("Group not found: {}", group_name);
+            return HttpResponse::BadRequest().json(UpdateGroupResponse {
+                success: false,
+                message: "Group not found".to_string(),
+            });
         }
     };
 
     // Check if new_group_name is empty
-    if group_info.new_group_name.is_empty() {
+    if new_group_name.is_empty() {
         info!("New group name is empty, maintaining the current group name for group_id: {}", group_id);
-        response.success = true;
-        response.message = "Group name maintained successfully".to_string();
-        return HttpResponse::Ok().json(response);
+        return HttpResponse::Ok().json(UpdateGroupResponse {
+            success: true,
+            message: "Group name maintained successfully".to_string(),
+        });
     }
 
     // Update the group name
     let update_result = sqlx::query!(
         "UPDATE Groups_ SET group_name = ? WHERE group_id = ?",
-        group_info.new_group_name, group_id
+        new_group_name, group_id
     )
     .execute(pool.get_ref())
     .await;
 
     if let Err(e) = update_result {
         error!("Failed to update group name for group_id {}: {}", group_id, e);
-        response.message = "Failed to update group name".to_string();
-        return HttpResponse::InternalServerError().json(response);
+        return HttpResponse::InternalServerError().json(UpdateGroupResponse {
+            success: false,
+            message: "Failed to update group name".to_string(),
+        });
     }
 
     info!("Group name updated successfully for group_id: {}", group_id);
-    response.success = true;
-    response.message = "Group name updated successfully".to_string();
-    HttpResponse::Ok().json(response)
+
+    return HttpResponse::Ok().json(UpdateGroupResponse {
+        success: true,
+        message: "Group name updated successfully".to_string(),
+    });
 }
 
 pub async fn delete_group(
     pool: web::Data<MySqlPool>,
     req: HttpRequest,
-    group_info: web::Json<DeleteGroupRequest>,
+    request: web::Json<DeleteGroupRequest>
 ) -> impl Responder {
-    let mut response = DeleteGroupResponse {
-        success: false,
-        message: String::new(),
-    };
+    let owner_user_name = &request.owner_user_name;
+    let group_name = &request.group_name;
 
-    // Extract session ID from the cookie
+    // Get the current user name using session ID in the cookie
     let session_id = match req.cookie("session_id") {
         Some(cookie) => cookie.value().to_string(),
         None => {
-            info!("Session ID not found in cookies for delete_group");
-            response.message = "Session ID not found".to_string();
-            return HttpResponse::BadRequest().json(response);
+            info!("Session ID not found in cookies for delete_tag");
+            return HttpResponse::BadRequest().json(DeleteGroupResponse {
+                success: false,
+                message: "Session ID not found".to_string(),
+            });
         }
     };
-    info!("Received request to delete group with session ID: {}", session_id);
 
-    // Verify session ID and get user information
     let session_result = sqlx::query!(
-        "SELECT user_id FROM Sessions_ WHERE session_id = ? AND expires_at > NOW()",
+        "SELECT u.user_name FROM Sessions_ s
+         JOIN Users_ u ON s.user_id = u.user_id
+         WHERE s.session_id = ? AND s.expires_at > NOW()",
         session_id
     )
     .fetch_one(pool.get_ref())
     .await;
 
-    let user_id = match session_result {
-        Ok(session) => session.user_id,
+    let current_user_name = match session_result {
+        Ok(session) => session.user_name,
         Err(_) => {
             info!("Invalid or expired session ID: {}", session_id);
-            response.message = "Invalid or expired session ID".to_string();
-            return HttpResponse::BadRequest().json(response);
+            return HttpResponse::BadRequest().json(DeleteGroupResponse {
+                success: false,
+                message: "Invalid or expired session ID".to_string(),
+            });
         }
     };
 
-    // Verify that the user is the owner of the group
-    let verify_owner_result = sqlx::query!(
-        "SELECT group_id FROM Groups_ WHERE group_name = ? AND owner_user_id = ?",
-        group_info.group_name, user_id
+    // Assert owner_user_name == current user name
+    if owner_user_name != &current_user_name {
+        return HttpResponse::BadRequest().json(UpdateGroupResponse {
+            success: false,
+            message: "Unauthorized action".to_string(),
+        });
+    }
+
+    // Get the group_id with group_name from Groups_
+    let group_id_result = sqlx::query!(
+        "
+        SELECT g.group_id 
+        FROM Groups_ g
+        JOIN Users_ u ON g.owner_user_id = u.user_id
+        WHERE g.group_name = ? AND u.user_name = ?
+        ",
+        group_name, owner_user_name
     )
     .fetch_one(pool.get_ref())
     .await;
 
-    let group_id = match verify_owner_result {
+    let group_id = match group_id_result {
         Ok(record) => record.group_id,
         Err(_) => {
-            info!("User is not the owner of the group {} or group does not exist", group_info.group_name);
-            response.message = "User is not the owner of the group or group does not exist".to_string();
-            return HttpResponse::BadRequest().json(response);
+            info!("Group not found: {}", group_name);
+            return HttpResponse::BadRequest().json(DeleteGroupResponse {
+                success: false,
+                message: "Group not found".to_string(),
+            });
         }
     };
+
 
     // Start a transaction
     let mut tx = match pool.begin().await {
         Ok(transaction) => transaction,
         Err(e) => {
             error!("Failed to start a transaction: {}", e);
-            response.message = "Failed to start a transaction".to_string();
-            return HttpResponse::InternalServerError().json(response);
+            return HttpResponse::BadRequest().json(DeleteGroupResponse {
+                success: false,
+                message: "Failed to start a transaction".to_string(),
+            });
         }
     };
 
@@ -335,9 +375,11 @@ pub async fn delete_group(
 
     if let Err(e) = delete_tasks_result {
         error!("Failed to delete tasks for group {}: {}", group_id, e);
-        response.message = "Failed to delete tasks".to_string();
         tx.rollback().await.unwrap();
-        return HttpResponse::InternalServerError().json(response);
+        return HttpResponse::InternalServerError().json(DeleteGroupResponse {
+            success: false,
+            message: "Failed to delete tasks".to_string(),
+        });
     }
 
     let delete_tag_project_mappings_result = sqlx::query!(
@@ -349,9 +391,11 @@ pub async fn delete_group(
 
     if let Err(e) = delete_tag_project_mappings_result {
         error!("Failed to delete tag-project mappings for group {}: {}", group_id, e);
-        response.message = "Failed to delete tag-project mappings".to_string();
         tx.rollback().await.unwrap();
-        return HttpResponse::InternalServerError().json(response);
+        return HttpResponse::InternalServerError().json(DeleteGroupResponse {
+            success: false,
+            message: "Failed to delete tag-project mappings".to_string(),
+        });
     }
     
     // Delete projects associated with the group and related mappings
@@ -364,9 +408,11 @@ pub async fn delete_group(
 
     if let Err(e) = delete_projects_result {
         error!("Failed to delete projects for group {}: {}", group_id, e);
-        response.message = "Failed to delete projects".to_string();
         tx.rollback().await.unwrap();
-        return HttpResponse::InternalServerError().json(response);
+        return HttpResponse::InternalServerError().json(DeleteGroupResponse {
+            success: false,
+            message: "Failed to delete projects".to_string(),
+        });
     }
 
     // Delete tags associated with the group
@@ -379,9 +425,11 @@ pub async fn delete_group(
 
     if let Err(e) = delete_tags_result {
         error!("Failed to delete tags for group {}: {}", group_id, e);
-        response.message = "Failed to delete tags".to_string();
         tx.rollback().await.unwrap();
-        return HttpResponse::InternalServerError().json(response);
+        return HttpResponse::InternalServerError().json(DeleteGroupResponse {
+            success: false,
+            message: "Failed to delete tags".to_string(),
+        });
     }
 
     // Delete all mappings from GroupUserMapping_ with group_id
@@ -394,9 +442,11 @@ pub async fn delete_group(
 
     if let Err(e) = delete_group_user_mapping_result {
         error!("Failed to delete group-user mappings for group {}: {}", group_id, e);
-        response.message = "Failed to delete group-user mappings".to_string();
         tx.rollback().await.unwrap();
-        return HttpResponse::InternalServerError().json(response);
+        return HttpResponse::InternalServerError().json(DeleteGroupResponse {
+            success: false,
+            message: "Failed to delete group-user mappings".to_string(),
+        });
     }
 
     // Finally, delete the group
@@ -409,20 +459,25 @@ pub async fn delete_group(
 
     if let Err(e) = delete_group_result {
         error!("Failed to delete group {}: {}", group_id, e);
-        response.message = "Failed to delete group".to_string();
         tx.rollback().await.unwrap();
-        return HttpResponse::InternalServerError().json(response);
+        return HttpResponse::InternalServerError().json(DeleteGroupResponse {
+            success: false,
+            message: "Failed to delete group".to_string(),
+        });
     }
 
     // Commit the transaction
     if let Err(e) = tx.commit().await {
         error!("Failed to commit transaction for deleting group {}: {}", group_id, e);
-        response.message = "Failed to commit transaction".to_string();
-        return HttpResponse::InternalServerError().json(response);
+        return HttpResponse::InternalServerError().json(DeleteGroupResponse {
+            success: false,
+            message: "Failed to commit transaction".to_string(),
+        });
     }
 
-    info!("Group {} deleted successfully", group_info.group_name);
-    response.success = true;
-    response.message = "Group deleted successfully".to_string();
-    HttpResponse::Ok().json(response)
+    info!("Group {} deleted successfully", group_name);
+    return HttpResponse::Ok().json(DeleteGroupResponse {
+        success: true,
+        message: "Group deleted successfully".to_string(),
+    });
 }
