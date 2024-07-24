@@ -35,6 +35,7 @@ pub fn group_selection_configure(cfg: &mut web::ServiceConfig) {
             .route("/group-list", web::post().to(group_selection_handlers::get_group_list))
             .route("/add-group", web::post().to(group_selection_handlers::add_group))
             .route("/update-group", web::patch().to(group_selection_handlers::update_group))
+            .route("/delete-group", web::patch().to(group_selection_handlers::delete_group))
     );
 }
 
