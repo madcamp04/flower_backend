@@ -32,6 +32,22 @@ pub struct AddProjectResponse {
     pub message: String,
 }
 
+#[derive(Deserialize)]
+pub struct UpdateProjectRequest {
+    pub owner_user_name: String,
+    pub group_name: String,
+    pub project_name: String,
+    pub new_project_name: String,
+    pub new_project_descr: String,
+    pub new_tags: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct UpdateProjectResponse {
+    pub success: bool,
+    pub message: String,
+}
+
 
 #[derive(Deserialize)]
 pub struct GetTaskDetailRequest {
@@ -72,6 +88,26 @@ pub struct AddTaskRequest {
 
 #[derive(Serialize)]
 pub struct AddTaskResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+
+#[derive(Deserialize)]
+pub struct UpdateTaskRequest {
+    pub owner_user_name: String,
+    pub group_name: String,
+    pub project_name: String,
+    pub task_title: String,
+    pub new_task_title: String,
+    pub new_worker_name: String,
+    pub new_description: String,
+    pub new_start_time: String,
+    pub new_end_time: String,
+}
+
+#[derive(Serialize)]
+pub struct UpdateTaskResponse {
     pub success: bool,
     pub message: String,
 }

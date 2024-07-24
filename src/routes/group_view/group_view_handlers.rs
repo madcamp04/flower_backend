@@ -8,6 +8,7 @@ use super::group_view_models::{
     AddWorkerRequest, AddWorkerResponse,
     GetTagListRequest, GetTagListResponse, Tag,
     AddTagRequest, AddTagResponse,
+    UpdateTagRequest, UpdateTagResponse,
     GetTaskListByTagListRequest, GetTaskListByTagListResponse, Task,
     GetTaskListByProjectNameRequest, GetTaskListByProjectNameResponse,
     GetProjectListRequest, GetProjectListResponse, Project
@@ -343,6 +344,123 @@ pub async fn add_tag(
     }
 }
 
+pub async fn update_tag(
+    pool: web::Data<MySqlPool>,
+    req: HttpRequest,
+    request: web::Json<UpdateTagRequest>,
+) -> impl Responder {
+    let owner_user_name = &request.owner_user_name;
+    let group_name = &request.group_name;
+    let tag_name = &request.tag_name;
+    let new_tag_name = &request.new_tag_name;
+    let new_tag_color = &request.new_tag_color;
+
+    // Get the current user name using session ID in the cookie
+    let session_id = match req.cookie("session_id") {
+        Some(cookie) => cookie.value().to_string(),
+        None => {
+            info!("Session ID not found in cookies for update_tag");
+            return HttpResponse::BadRequest().json(UpdateTagResponse {
+                success: false,
+                message: "Session ID not found".to_string(),
+            });
+        }
+    };
+
+    let session_result = sqlx::query!(
+        "SELECT u.user_name FROM Sessions_ s
+         JOIN Users_ u ON s.user_id = u.user_id
+         WHERE s.session_id = ? AND s.expires_at > NOW()",
+        session_id
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let current_user_name = match session_result {
+        Ok(session) => session.user_name,
+        Err(_) => {
+            info!("Invalid or expired session ID: {}", session_id);
+            return HttpResponse::BadRequest().json(UpdateTagResponse {
+                success: false,
+                message: "Invalid or expired session ID".to_string(),
+            });
+        }
+    };
+
+    // Assert owner_user_name == current user name
+    if owner_user_name != &current_user_name {
+        return HttpResponse::BadRequest().json(UpdateTagResponse {
+            success: false,
+            message: "Unauthorized action".to_string(),
+        });
+    }
+
+    // Get the group_id with group_name from Groups_
+    let group_id_result = sqlx::query!(
+        "
+        SELECT g.group_id 
+        FROM Groups_ g
+        JOIN Users_ u ON g.owner_user_id = u.user_id
+        WHERE g.group_name = ? AND u.user_name = ?
+        ",
+        group_name, owner_user_name
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let group_id = match group_id_result {
+        Ok(record) => record.group_id,
+        Err(_) => {
+            info!("Group not found: {}", group_name);
+            return HttpResponse::BadRequest().json(UpdateTagResponse {
+                success: false,
+                message: "Group not found".to_string(),
+            });
+        }
+    };
+
+    // Check if tag_name exists in Tags_ table under the group
+    let tag_result = sqlx::query!(
+        "SELECT tag_id FROM Tags_ WHERE group_id = ? AND tag_name = ?",
+        group_id, tag_name
+    )
+    .fetch_one(pool.get_ref())
+    .await;
+
+    let tag_id = match tag_result {
+        Ok(record) => record.tag_id,
+        Err(_) => {
+            info!("Tag not found: {}", tag_name);
+            return HttpResponse::BadRequest().json(UpdateTagResponse {
+                success: false,
+                message: "Tag not found".to_string(),
+            });
+        }
+    };
+
+    // Update the tag in the Tags_ table
+    let update_result = sqlx::query!(
+        "UPDATE Tags_ SET tag_name = ?, tag_color = ? WHERE tag_id = ?",
+        new_tag_name, new_tag_color, tag_id
+    )
+    .execute(pool.get_ref())
+    .await;
+
+    match update_result {
+        Ok(_) => HttpResponse::Ok().json(UpdateTagResponse {
+            success: true,
+            message: "Tag updated successfully".to_string(),
+        }),
+        Err(e) => {
+            error!("Failed to update tag {}: {}", tag_id, e);
+            HttpResponse::InternalServerError().json(UpdateTagResponse {
+                success: false,
+                message: "Failed to update tag".to_string(),
+            })
+        }
+    }
+}
+
 // Handler to get task list by tag list
 pub async fn get_task_list_by_tag_list(
     pool: web::Data<MySqlPool>,
@@ -632,7 +750,7 @@ pub async fn get_project_list(
 
     let group_id = match group_id_result {
         Ok(record) => record.group_id,
-        Err(_) => {
+        Err(_) => { 
             info!("Group not found: {}", group_name);
             return HttpResponse::BadRequest().json(GetProjectListResponse { projects: Vec::new() });
         }
