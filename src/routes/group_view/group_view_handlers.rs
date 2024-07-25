@@ -692,11 +692,11 @@ pub async fn get_task_list_by_tag_list(
             FROM Tasks_ t
             JOIN Users_ u ON t.worker_user_id = u.user_id
             JOIN Projects_ p ON t.project_id = p.project_id
-            JOIN Tags_ ta ON ta.group_id = ?
-            LEFT JOIN TagProjectMapping_ tpm ON ta.tag_id = tpm.tag_id
+            JOIN TagProjectMapping_ tpm ON p.project_id = tpm.project_id
+            JOIN Tags_ ta ON ta.tag_Id = tpm.tag_id
             WHERE p.group_id = ?
             GROUP BY t.task_id",
-            group_id, group_id
+            group_id
         )
         .fetch_all(pool.get_ref())
         .await;
