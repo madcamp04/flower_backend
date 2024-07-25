@@ -682,14 +682,20 @@ pub async fn get_task_list_by_tag_list(
     if tags.is_empty() {
         // Tag list is empty, get all tasks under the group
         let tasks_result = sqlx::query!(
-            "SELECT t.title AS task_title, u.user_name AS worker_name, t.start_time, t.end_time, t.description, p.project_name, GROUP_CONCAT(ta.tag_color SEPARATOR ',') AS tag_colors
-             FROM Tasks_ t
-             JOIN Users_ u ON t.worker_user_id = u.user_id
-             JOIN Projects_ p ON t.project_id = p.project_id
-             JOIN Tags_ ta ON ta.group_id = ?
-             LEFT JOIN TagProjectMapping_ tpm ON ta.tag_id = tpm.tag_id
-             WHERE p.group_id = ?
-             GROUP BY t.task_id",
+            "SELECT t.title AS task_title, 
+                    u.user_name AS worker_name, 
+                    t.start_time, 
+                    t.end_time, 
+                    t.description, 
+                    p.project_name, 
+                    GROUP_CONCAT(DISTINCT ta.tag_color SEPARATOR ',') AS tag_colors
+            FROM Tasks_ t
+            JOIN Users_ u ON t.worker_user_id = u.user_id
+            JOIN Projects_ p ON t.project_id = p.project_id
+            JOIN Tags_ ta ON ta.group_id = ?
+            LEFT JOIN TagProjectMapping_ tpm ON ta.tag_id = tpm.tag_id
+            WHERE p.group_id = ?
+            GROUP BY t.task_id",
             group_id, group_id
         )
         .fetch_all(pool.get_ref())
@@ -780,7 +786,13 @@ pub async fn get_task_list_by_tag_list(
         // Dynamically construct the IN clause
         let placeholders = project_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
         let query_str = format!(
-            "SELECT t.title AS task_title, u.user_name AS worker_name, t.start_time, t.end_time, t.description, p.project_name, GROUP_CONCAT(ta.tag_color SEPARATOR ',') AS tag_colors
+            "SELECT t.title AS task_title, 
+                    u.user_name AS worker_name, 
+                    t.start_time, 
+                    t.end_time, 
+                    t.description,  
+                    p.project_name, 
+                    GROUP_CONCAT(DISTINCT ta.tag_color SEPARATOR ',') AS tag_colors
             FROM Tasks_ t
             JOIN Users_ u ON t.worker_user_id = u.user_id
             JOIN Projects_ p ON t.project_id = p.project_id
@@ -875,7 +887,13 @@ pub async fn get_task_list_by_project_name(
     // Dynamically construct the IN clause
     let placeholders = project_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
     let query_str = format!(
-        "SELECT t.title AS task_title, u.user_name AS worker_name, t.start_time, t.end_time, t.description, p.project_name, GROUP_CONCAT(ta.tag_color SEPARATOR ',') AS tag_colors
+        "SELECT t.title AS task_title, 
+                u.user_name AS worker_name, 
+                t.start_time, 
+                t.end_time, 
+                t.description, 
+                p.project_name, 
+                GROUP_CONCAT(DISTINCT ta.tag_color SEPARATOR ',') AS tag_colors
         FROM Tasks_ t
         JOIN Users_ u ON t.worker_user_id = u.user_id
         JOIN Projects_ p ON t.project_id = p.project_id
